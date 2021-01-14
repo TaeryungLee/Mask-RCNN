@@ -415,77 +415,77 @@ https://github.com/multimodallearning/pytorch-mask-rcnn/blob/master/model.py
 
 <Building process>
 starts from meta_arch/build.py/build_model => META_ARCH_REGISTRY.get(meta_arch)(cfg)
-  - get == dict.get
-  - 결국, 그냥 class 객체를 꺼내와서 cfg먹여서 initialize하는걸로 보임
-  - class간의 위계 파악 이후, 구조를 전체적으로 이해하는것이 필요함.
+- get == dict.get
+- 결국, 그냥 class 객체를 꺼내와서 cfg먹여서 initialize하는걸로 보임
+- class간의 위계 파악 이후, 구조를 전체적으로 이해하는것이 필요함.
 
 1. GeneralizedRCNN.init and from_config
-  - from_config -> init 순서
-  - from_config builds backbone
-    - backbone/build.py/build_backbone function used
-    - backbone name: backbone/fpn.py/build_resnet_fpn_backbone
-      - bottom_up: backbone/resnet/build_resnet_backbone 
-        (goes into FPN class init as bottom_up argument)
-      - backbone: backbone/fpn.py/FPN class (what is actually returned)
-    -> FPN class backbone returned.
-  
-  - from_config builds proposal_generator
-    - proposal_generator/build.py/build_proposal_generator function used
-    - proposal_generator name: proposal_generator/rpn.py/RPN class
-    - uses from_config -> build_anchor_generator, Matcher, build_rpn_head
-    - No further nested function calls.
-    -> RPN class proposal_generator returned
-  
-  - from_config builds roi_heads
-    - roi_heads/roi_heads.py/build_roi_heads
-    - roi_heads name: StandardROIHeads(in same roi_heads.py)
-      - inherits ROI_HEADS
-      - super.from_config
+- from_config -> init 순서
+- from_config builds backbone
+  - backbone/build.py/build_backbone function used
+  - backbone name: backbone/fpn.py/build_resnet_fpn_backbone
+    - bottom_up: backbone/resnet/build_resnet_backbone 
+      (goes into FPN class init as bottom_up argument)
+    - backbone: backbone/fpn.py/FPN class (what is actually returned)
+  -> FPN class backbone returned.
+
+- from_config builds proposal_generator
+  - proposal_generator/build.py/build_proposal_generator function used
+  - proposal_generator name: proposal_generator/rpn.py/RPN class
+  - uses from_config -> build_anchor_generator, Matcher, build_rpn_head
+  - No further nested function calls.
+  -> RPN class proposal_generator returned
+
+- from_config builds roi_heads
+  - roi_heads/roi_heads.py/build_roi_heads
+  - roi_heads name: StandardROIHeads(in same roi_heads.py)
+    - inherits ROI_HEADS
+    - super.from_config
 
 2. Forwards and in/out format
   - In largest scale (GeneralizedRCNN)
-    input. batched_inputs: Tuple[Dict[str, torch.Tensor]]
-           A list, batched output of "DatasetMapper"
-           Each item in the list contains the inputs for one image. (Dict[str, torch.Tensor])
-           image (req): torch.Tensor
-                        (C, H, W) format.
-           instances (opt): class "Instances", ground truth
-           proposals (opt): class "Instances", precomputed proposals
-    
-    output. list[Dict]
-            Each dict is the output for one input image.
-            Dict contains one key "instances" whose value is a class "Instances"
-            Class "Instances" has following keys:
-              "pred_boxes", "pred_classes", "scores", "pred_masks", "pred_keypoints"
+  input. batched_inputs: Tuple[Dict[str, torch.Tensor]]
+          A list, batched output of "DatasetMapper"
+          Each item in the list contains the inputs for one image. (Dict[str, torch.Tensor])
+          image (req): torch.Tensor
+                      (C, H, W) format.
+          instances (opt): class "Instances", ground truth
+          proposals (opt): class "Instances", precomputed proposals
+  
+  output. list[Dict]
+          Each dict is the output for one input image.
+          Dict contains one key "instances" whose value is a class "Instances"
+          Class "Instances" has following keys:
+            "pred_boxes", "pred_classes", "scores", "pred_masks", "pred_keypoints"
 
-    pre. check if it is training or inferrence
-    a. preprocess image -> variable images
-    b. load instances to device -> variable gt_instances
-    c. forward to self.backbone(images.tensor) -> output variable features
-    d. (Assuming that proposal_generator is not None),
-       forward to self.proposal_generator(images, features, gt_instances)
-       -> output variables (proposals, proposal_losses)
-    e. forward to self.roi_heads(images, features, proposals, gt_instances)
-       -> output variables (_, detector_losses)    (why skip first return var?)
-    f. save loss dict (detector, proposal)
+  pre. check if it is training or inferrence
+  a. preprocess image -> variable images
+  b. load instances to device -> variable gt_instances
+  c. forward to self.backbone(images.tensor) -> output variable features
+  d. (Assuming that proposal_generator is not None),
+      forward to self.proposal_generator(images, features, gt_instances)
+      -> output variables (proposals, proposal_losses)
+  e. forward to self.roi_heads(images, features, proposals, gt_instances)
+      -> output variables (_, detector_losses)    (why skip first return var?)
+  f. save loss dict (detector, proposal)
 
   - Backbone(FPN)
-    pre. what happens before forward
-         bottom_up = build_resnet_backbone(cfg, input_shape -> holds that channel is 3)
-         -> resnet forward gives outputs of each convolution stage in form of dict
-            (defined in out_features, res2~5)
-         FPN.__init__.super.__init__() -> inherited from nn.Module
-         Input shape of FPN: ResNet.output_shape, holds channels and strides for each out_features
-                             ex) {'res2': ShapeSpec(channel=~~, stride=~~)}
-         Norm = "" -> do not use batch norm in default settings of FPN
-         create lateral, output conv modules and add them to network.
+  pre. what happens before forward
+    bottom_up = build_resnet_backbone(cfg, input_shape -> holds that channel is 3)
+    -> resnet forward gives outputs of each convolution stage in form of dict
+      (defined in out_features, res2~5)
+    FPN.__init__.super.__init__() -> inherited from nn.Module
+    Input shape of FPN: ResNet.output_shape, holds channels and strides for each out_features
+                        ex) {'res2': ShapeSpec(channel=~~, stride=~~)}
+    Norm = "" -> do not use batch norm in default settings of FPN
+    create lateral, output conv modules and add them to network.
     
-    forward.
-    input. dict[str->Tensor], ex) "res2" -> feature_map
-    output. dict[str->Tensor] in high to low resolution order (p2, p3, ..., p6)
-    a. bottom_up_features..? 이미 바텀업은 한번 통과한거 아닌가? No. Init에서는 bottom_up을 정의만 함.
-       forward bottom_up (ResNet)
-    b. compute upscaling, and add previous features
+  forward.
+  input. dict[str->Tensor], ex) "res2" -> feature_map
+  output. dict[str->Tensor] in high to low resolution order (p2, p3, ..., p6)
+  a. bottom_up_features..? 이미 바텀업은 한번 통과한거 아닌가? No. Init에서는 bottom_up을 정의만 함.
+    forward bottom_up (ResNet)
+  b. compute upscaling, and add previous features
   
   - Proposal generator(RPN)
   forwards and losses
@@ -498,6 +498,30 @@ starts from meta_arch/build.py/build_model => META_ARCH_REGISTRY.get(meta_arch)(
 
   - RoI heads StandardROIHeads(ROIHeads)
   (Results of RoI heads are discarded through training steps)
+  (forward information in ROIHeads.forward)
+  input. images, features, proposals, targets
+    (called in rcnn by self.roi_heads(images, features, proposals, gt_instances))
+    images: list of raw preprocessed images
+    features: Dict[str, torch.Tensor]: output of backbone network
+      mapping from feature map name to tensor. (N * C * H * W)
+    proposals: list[Instances]: output of proposal network, length N
+      instance object contains proposal_boxes and objectness_logits
+    targets: list[Instances], optional: ground truth, length N
+      instance object contains ground-truth annotations
+  output. 
+    list[Instances]: detected instances during inferrence. Nothing during training
+    dict[str->tensor]: mapping from named loss to tensor storing the loss. Only for training
+
+  forward.
+  a. delete images
+  b. label_and_sample_proposals -> form training samples
+  c. delete targets
+  d. forward_box, forward_mask, forward_keypoint
+    box_head and box_predictor -> forward_box
+    select_foreground_proposals and mask_head -> forward_mask
+    select_foreground_proposals, select_proposals_with_visible_keypoints,
+    keypoint_pooler and keypoint_head -> forward_keypoint
+
 
          
 
