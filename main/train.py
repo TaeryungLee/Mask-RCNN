@@ -1,6 +1,7 @@
 import logging
 import os
 import sys
+import config
 import abc
 import torch
 from torch.optim.lr_scheduler import MultiStepLR, CosineAnnealingWarmRestarts
@@ -13,7 +14,7 @@ def parse_args():
     _parser = argparse.ArgumentParser()
     _parser.add_argument('--num_gpus', type=int, default=2)
     _parser.add_argument('--gpu_ids', type=str, required=True, 
-                          help="Use space between ids")
+                          help="Use comma between ids")
     _parser.add_argument('--home', type=str, default="./output/test01")
     _parser.add_argument('--num_workers', type=int, default=8)
 
@@ -40,7 +41,7 @@ class Trainer(DefaultTrainer):
 
         self.model = self._create_model(model_name=args.model_name)
 
-        self.optimizer = self.get_optimizer(model=self.model, args=args)
+        self.optimizer = self._get_optimizer(model=self.model, args=args)
 
         self.lr_scheduler = self._get_lr_scheduler(
             lr=args.lr, lr_scheduler=args.lr_scheduler,
@@ -100,6 +101,7 @@ class Trainer(DefaultTrainer):
 
 
 def main():
+    print(sys.argv)
     args = parse_args()
     trainer = Trainer(args)
     trainer.train()
