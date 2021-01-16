@@ -521,37 +521,3 @@ starts from meta_arch/build.py/build_model => META_ARCH_REGISTRY.get(meta_arch)(
     select_foreground_proposals and mask_head -> forward_mask
     select_foreground_proposals, select_proposals_with_visible_keypoints,
     keypoint_pooler and keypoint_head -> forward_keypoint
-
-
-         
-
-
-
-* Other questions
-- GeneralizedRCNN.device에서 self.pixel_mean.device -> 얘 initialize하는데는 어디인가?
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
