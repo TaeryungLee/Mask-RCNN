@@ -7,14 +7,16 @@ import torch
 from torch.optim.lr_scheduler import MultiStepLR, CosineAnnealingWarmRestarts
 from torch.optim import SGD, Adam
 import argparse
+from data.loader import build_dataloader
 from utils.default import DefaultTrainer
+from PIL import Image
 
 
 def parse_args():
     _parser = argparse.ArgumentParser()
     _parser.add_argument('--num_gpus', type=int, default=2)
-    _parser.add_argument('--gpu_ids', type=str, required=True, 
-                          help="Use comma between ids")
+    _parser.add_argument('--gpu_ids', type=str, 
+                         help="Use comma between ids")
     _parser.add_argument('--home', type=str, default="./output/test01")
     _parser.add_argument('--num_workers', type=int, default=8)
 
@@ -30,7 +32,14 @@ def parse_args():
                           help="multistep, multistep-warmup, cosine")
     
     _parser.add_argument('--image_per_batch', type=int, default=2)
-    _parser.add_argument('--batch_size', type=int, default=1024)
+    _parser.add_argument('--batch_size', type=int, default=4)
+
+    _parser.add_argument('--min_size', type=str, default='640 672 704 736 768 800')
+    _parser.add_argument('--max_size', type=int, default=1333)
+
+    _parser.add_argument('--data_dir', type=str, 
+                         default="/media/thanos_hdd0/taeryunglee/detectron2/coco")
+
     
     args = _parser.parse_args()
     return args
@@ -39,15 +48,15 @@ class Trainer(DefaultTrainer):
     def __init__(self, args):
         super(Trainer, self).__init__(args)
 
-        self.model = self._create_model(model_name=args.model_name)
+        # self.model = self._create_model(model_name=args.model_name)
 
-        self.optimizer = self._get_optimizer(model=self.model, args=args)
+        # self.optimizer = self._get_optimizer(model=self.model, args=args)
 
-        self.lr_scheduler = self._get_lr_scheduler(
-            lr=args.lr, lr_scheduler=args.lr_scheduler,
-            start_iter=args.start_iter, max_iter=args.max_iter)
+        # self.lr_scheduler = self._get_lr_scheduler(
+        #     lr=args.lr, lr_scheduler=args.lr_scheduler,
+        #     start_iter=args.start_iter, max_iter=args.max_iter)
         
-        self.train_loader = self._create_dataloader()
+        self.train_loader = self._create_dataloader(args)
                 
 
     def _create_model(self, model_name):
@@ -84,20 +93,21 @@ class Trainer(DefaultTrainer):
             raise ValueError("unknown scheduler")
     
 
-    def _create_dataloader(self):
-        pass
+    def _create_dataloader(self, args):
+        return build_dataloader(args, train=True)
 
 
     def train(self):
         pass
 
 
+    def test(self):
+        for i, data in enumerate(self.train_loader):
+            print(i)
+            if i > 1:
+                break
 
-
-
-
-
-
+            
 
 
 def main():
@@ -105,6 +115,7 @@ def main():
     args = parse_args()
     trainer = Trainer(args)
     trainer.train()
+    # trainer.test()
 
 if __name__ == "__main__":
     main()

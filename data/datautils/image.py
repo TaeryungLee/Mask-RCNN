@@ -8,7 +8,7 @@ def load_image(file_name, format="RGB"):
     """
     image = Image.open(file_name).convert(format)
 
-    return file_name
+    return image
 
 def PIL_to_numpy(image, format=None):
     if format:

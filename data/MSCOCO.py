@@ -3,6 +3,7 @@ import torch
 import numpy as np
 import config
 import copy
+import cv2
 from pprint import pprint
 from torch.utils.data import Dataset, DataLoader
 from pycocotools.coco import COCO
@@ -10,6 +11,8 @@ from PIL import Image
 from data.datautils import image as imutil
 from data.datautils import augmentations as aug
 from data.datautils import transforms as T
+from utils.visualizer import visualizer
+
 
 class MSCOCO(Dataset):
     def _build_dataset_dict(self, ann_path, data_path, target_class, add_ann):
@@ -37,7 +40,7 @@ class MSCOCO(Dataset):
             for ann in ann_dict_list:
                 assert ann["image_id"] == image_id
                 obj = {key: ann[key] for key in out_ann if key in ann}
-                assert ann["category_id"] in target_class
+                # assert ann["category_id"] in target_class
 
                 keypts = ann.get("keypoints", None)
                 if keypts:
@@ -63,7 +66,17 @@ class MSCOCO(Dataset):
         Argument :args: holds informations needed to initialize Transform objects.
         Argument :transforms: list[str]: holds names of transforms to be initialized. 
         """
-        pass
+        transform_list = []
+
+        for t in transforms:
+            if t == "ResizeShortestEdge":
+                # initialize ResizeShortestEdge and append
+                transform_list.append(T.ResizeShortestEdge(args.min_size.split(), args.max_size))
+
+            elif t == "RandomFlip":
+                # initialize RandomFlip and append
+                transform_list.append(T.RandomFlip(0.5, "h"))
+        return transform_list
 
     def __init__(self, 
         args, data_dir, target_class=[1], train=True, add_ann=[], 
@@ -86,7 +99,6 @@ class MSCOCO(Dataset):
         self.dataset_dicts = self._build_dataset_dict(self._ann_path, self._data_path, target_class, add_ann)
         self.transforms = self._build_transforms(args, transforms)
 
-
     def __len__(self):
         return len(self.dataset_dicts)
     
@@ -97,42 +109,54 @@ class MSCOCO(Dataset):
         img = imutil.load_image(dataset_dict["file_name"])
         img = imutil.PIL_to_numpy(img)
 
+        # Test visualization code
+        # vis = img.copy()
+        # vis[:, :, [0, 2]] = vis[:, :, [2, 0]]
+        # i = 0
+        # for obj in dataset_dict["annotations"]:
+        #     vis = visualizer(vis, obj["bbox"], obj["keypoints"], i)
+        #     i += 1
+        # cv2.imwrite("visuailization_pre.jpeg", vis)
+
         assert imutil.check_image_size(img, dataset_dict["height"], dataset_dict["width"]), "image size of {} does not match!".format(dataset_dict["file_name"])
 
         img_shape = imutil.get_image_size(img) # H * W
-        dataset_dict["image"] = torch.as_tnesor(np.ascontiguousarray(img.transpose(2,0,1)))
+        dataset_dict["image"] = torch.as_tensor(np.ascontiguousarray(img.transpose(2,0,1)))
 
         # Build AugInput
         aug_input = aug.AugInput(img, dataset_dict["annotations"])
-
-        # We have built transform list in __init__.
-        # So we just need to put aug_input into given transforms sequentially.
-
+        
         for transform in self.transforms:
             aug_input = transform(aug_input)
-        
-        # Extract image and annotation data from aug_input
-        # In fact, I have to make every transforms work in place, 
-        # so I don't have to extract results from aug_input actually. 
-        # Anyways, I will do extraction.
 
         dataset_dict["image"] = aug_input.image
         dataset_dict["annotations"] = aug_input.annotations
         
         # Finally, I have to convert annotations to instances. (To be implemented)
-        raise NotImplementedError("Convert annotations to instances not implemented")
-
+        # raise NotImplementedError("Convert annotations to instances not implemented")
 
         return dataset_dict
 
 def test():
-    data = MSCOCO("/media/thanos_hdd0/taeryunglee/detectron2/coco", train=True)
-    print(len(data))
+    from main.train import parse_args
+    args = parse_args()
 
-    img, target = data.__getitem__(2)
+    data = MSCOCO(args, "/media/thanos_hdd0/taeryunglee/detectron2/coco", train=False)
 
-    # pprint(target)
-    img.save("tmp.jpeg")
+    res = data.__getitem__(2133)
+
+    im = Image.fromarray(res["image"])
+    im.save("after.jpeg")
+
+    i = 0
+    vis = res["image"].copy()
+    vis[:, :, [0, 2]] = vis[:, :, [2, 0]]
+
+    for obj in res["annotations"]:
+        vis = visualizer(vis, obj["bbox"], obj["keypoints"], i)
+        i += 1
+    cv2.imwrite("visuailization.jpeg", vis)
+    
 
 if __name__ == "__main__":
     test()
