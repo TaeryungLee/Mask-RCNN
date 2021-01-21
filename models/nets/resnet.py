@@ -207,9 +207,10 @@ class StemBlock(nn.Module):
 def test():
     net = ResNet(depth=50)
     # print(net)
-    y = net(torch.randn(1, 3, 1024, 1024))
+    y = net(torch.randn(1, 3, 800, 800))
     
     for key in y.keys():
         print(key, y[key].shape)
 
-# test()
+if __name__ == "__main__":
+    test()

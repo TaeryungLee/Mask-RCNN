@@ -4,7 +4,8 @@ import torch
 def build_dataloader(args, train=True):
     dataset = MSCOCO(args, args.data_dir, train)
 
-    sampler = torch.utils.data.RandomSampler(dataset)
+    sampler = torch.utils.data.SequentialSampler(dataset)
+
     dataloader = torch.utils.data.DataLoader(
         dataset,
         batch_size=args.batch_size,

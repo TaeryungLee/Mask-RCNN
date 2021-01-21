@@ -9,6 +9,7 @@ from torch.optim import SGD, Adam
 import argparse
 from data.loader import build_dataloader
 from utils.default import DefaultTrainer
+from models.mask_rcnn import MaskRCNN
 from PIL import Image
 
 
@@ -18,7 +19,7 @@ def parse_args():
     _parser.add_argument('--gpu_ids', type=str, 
                          help="Use comma between ids")
     _parser.add_argument('--home', type=str, default="./output/test01")
-    _parser.add_argument('--num_workers', type=int, default=8)
+    _parser.add_argument('--num_workers', type=int, default=4)
 
     _parser.add_argument('--model_name', type=str, default="ResNet-50-FPN")
     _parser.add_argument('--max_iter', type=int, default=80000)
@@ -40,6 +41,9 @@ def parse_args():
     _parser.add_argument('--data_dir', type=str, 
                          default="/media/thanos_hdd0/taeryunglee/detectron2/coco")
 
+    _parser.add_argument('--pixel_mean', type=str, default='103.53 116.28 123.675')
+    _parser.add_argument('--pixel_std', type=str, default='1.0 1.0 1.0')
+    _parser.add_argument('--fpn_out_chan', type=int, default=256)
     
     args = _parser.parse_args()
     return args
@@ -48,7 +52,8 @@ class Trainer(DefaultTrainer):
     def __init__(self, args):
         super(Trainer, self).__init__(args)
 
-        # self.model = self._create_model(model_name=args.model_name)
+        self.model = self._create_model(args, model_name=args.model_name)
+        self.args = args
 
         # self.optimizer = self._get_optimizer(model=self.model, args=args)
 
@@ -59,9 +64,14 @@ class Trainer(DefaultTrainer):
         self.train_loader = self._create_dataloader(args)
                 
 
-    def _create_model(self, model_name):
-        # Based on detectron2/modeling/meta_arch/rcnn.py/GeneralizedRCNN
-        pass
+    def _create_model(self, args, model_name):
+        pixel_mean = args.pixel_mean.split()
+        pixel_mean = [float(x) for x in pixel_mean]
+        pixel_std = args.pixel_std.split()
+        pixel_std = [float(x) for x in pixel_std]
+
+        if model_name == "ResNet-50-FPN":
+            return MaskRCNN(args, pixel_mean, pixel_std)
 
 
     def _get_optimizer(self, model, args):
@@ -103,9 +113,10 @@ class Trainer(DefaultTrainer):
 
     def test(self):
         for i, data in enumerate(self.train_loader):
-            print(i)
             if i > 1:
                 break
+
+            self.model.preprocess(self.args, data)
 
             
 
@@ -115,7 +126,7 @@ def main():
     args = parse_args()
     trainer = Trainer(args)
     trainer.train()
-    # trainer.test()
+    trainer.test()
 
 if __name__ == "__main__":
     main()
