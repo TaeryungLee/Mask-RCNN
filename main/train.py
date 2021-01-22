@@ -6,6 +6,7 @@ import abc
 import torch
 from torch.optim.lr_scheduler import MultiStepLR, CosineAnnealingWarmRestarts
 from torch.optim import SGD, Adam
+from torch import nn
 import argparse
 from data.loader import build_dataloader
 from utils.default import DefaultTrainer
@@ -52,8 +53,19 @@ class Trainer(DefaultTrainer):
     def __init__(self, args):
         super(Trainer, self).__init__(args)
 
-        self.model = self._create_model(args, model_name=args.model_name)
         self.args = args
+        self.model = self._create_model(args, model_name=args.model_name)
+
+        device = torch.device("cuda:0")
+
+        # self.model = nn.DataParallel(self.model)
+        self.model.to(device)
+        
+
+        # if args.num_gpus > 1:
+        #     self.model = nn.DataParallel(self.model)
+        
+        # self.model.cuda()
 
         # self.optimizer = self._get_optimizer(model=self.model, args=args)
 
@@ -116,7 +128,16 @@ class Trainer(DefaultTrainer):
             if i > 1:
                 break
 
-            self.model.preprocess(self.args, data)
+            # batched_imgs, image_sizes = self.model.module.preprocess(self.args, data)
+            # backbone_features = self.model.module.backbone(batched_imgs)
+            batched_imgs, image_sizes = self.model.preprocess(self.args, data)
+            backbone_features = self.model.backbone(batched_imgs)
+
+            print(backbone_features["p2"].shape)
+            print(backbone_features["p3"].shape)
+            print(backbone_features["p4"].shape)
+            print(backbone_features["p5"].shape)
+            print(backbone_features["p6"].shape)
 
             
 

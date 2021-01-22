@@ -22,7 +22,8 @@ class MaskRCNN(nn.Module):
         self.register_buffer("pixel_mean", torch.Tensor(pixel_mean).view(-1, 1, 1))
         self.register_buffer("pixel_std", torch.Tensor(pixel_mean).view(-1, 1, 1))
 
-        self.device = self.pixel_mean.device
+    def device(self):
+        return self.pixel_mean.device
 
     
     def preprocess(self, args, batched_inputs):
@@ -30,7 +31,7 @@ class MaskRCNN(nn.Module):
         Normalize, pad and batch the input images.
         Must store previous image sizes.
         """
-        images = [torch.Tensor(x["image"]).to(self.device) for x in batched_inputs]
+        images = [torch.Tensor(x["image"]).to(self.device()) for x in batched_inputs]
         images = [torch.reshape(x, (x.shape[-1], x.shape[0], x.shape[1])) for x in images]
         images = [(x - self.pixel_mean) / self.pixel_std for x in images]
 

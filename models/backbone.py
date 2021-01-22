@@ -25,4 +25,4 @@ def build_backbone(args):
     # fuse_type = "sum"
 
     if args.model_name == "ResNet-50-FPN":
-        return FPN(bottom_up=bottom_up, in_features=in_features, out_channels=out_channels)
+        return FPN(bottom_up=bottom_up, in_features=in_features, out_channels=out_channels, top_block=True)

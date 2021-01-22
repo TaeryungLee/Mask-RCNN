@@ -25,6 +25,7 @@ class ResNet(nn.Module):
         self._in_channels = (64, 256, 512, 1024)
         self._out_channels = (256, 512, 1024, 2048)
         self.out_features = out_features
+        self.strides = (4, 8, 16, 32)
 
         self.stem = StemBlock
         self.block = BasicBlock if depth in (18, 34) else BottleneckBlock
