@@ -11,6 +11,8 @@ import argparse
 from data.loader import build_dataloader
 from utils.default import DefaultTrainer
 from models.mask_rcnn import MaskRCNN
+from models.nets.resnet import ResNet
+from torchvision.models import resnet50
 from PIL import Image
 
 
@@ -56,10 +58,8 @@ class Trainer(DefaultTrainer):
         self.args = args
         self.model = self._create_model(args, model_name=args.model_name)
 
-        device = torch.device("cuda:0")
-
-        # self.model = nn.DataParallel(self.model)
-        self.model.to(device)
+        self.model = nn.DataParallel(self.model)
+        self.model.cuda()
         
 
         # if args.num_gpus > 1:
@@ -125,19 +125,20 @@ class Trainer(DefaultTrainer):
 
     def test(self):
         for i, data in enumerate(self.train_loader):
-            if i > 1:
+            if i > 25:
                 break
 
-            # batched_imgs, image_sizes = self.model.module.preprocess(self.args, data)
             # backbone_features = self.model.module.backbone(batched_imgs)
-            batched_imgs, image_sizes = self.model.preprocess(self.args, data)
-            backbone_features = self.model.backbone(batched_imgs)
-
+            # batched_imgs, image_sizes = self.model.preprocess(self.args, data)
+            # backbone_features = self.model.backbone(batched_imgs)
+            backbone_features = self.model(data)
             print(backbone_features["p2"].shape)
-            print(backbone_features["p3"].shape)
-            print(backbone_features["p4"].shape)
-            print(backbone_features["p5"].shape)
-            print(backbone_features["p6"].shape)
+
+            if i % 5 == 0:
+                torch.cuda.empty_cache()
+
+
+
 
             
 

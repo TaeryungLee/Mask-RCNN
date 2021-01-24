@@ -61,7 +61,8 @@ class FPN(nn.Module):
         
 
     def forward(self, x):
-        bottom_up_features = self.bottom_up(x)
+        with torch.no_grad():
+            bottom_up_features = self.bottom_up(x)
         
         # bottom_up_outputs = [bottom_up_features["res{}".format(i)] for i in range(5, 1, -1)]
 

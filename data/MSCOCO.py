@@ -129,13 +129,20 @@ class MSCOCO(Dataset):
         for transform in self.transforms:
             aug_input = transform(aug_input)
 
-        dataset_dict["image"] = aug_input.image
-        dataset_dict["annotations"] = aug_input.annotations
+        dataset_dict["image"] = aug_input.image.copy()
+
+        bboxes = [x["bbox"] for x in aug_input.annotations]
+        dataset_dict["annotations"] = torch.tensor(bboxes)
+
+        ret = {
+            "image": dataset_dict["image"],
+            "annotations": torch.tensor(bboxes)
+        }
         
         # Finally, I have to convert annotations to instances. (To be implemented)
         # raise NotImplementedError("Convert annotations to instances not implemented")
 
-        return dataset_dict
+        return ret
 
 def test():
     from main.train import parse_args

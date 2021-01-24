@@ -86,7 +86,7 @@ class ResNet(nn.Module):
         x = self.C5(x)
         output_stages["res5"] = x
 
-        return {key: output_stages[key] for key in self.out_features}
+        return output_stages
 
     def make_stage(self, block, layers, in_channels, out_channels, stride):
         strides = [stride if (n == 0) else 1 for n in range(layers)]

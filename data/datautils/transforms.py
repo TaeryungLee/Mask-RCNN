@@ -174,4 +174,5 @@ class RandomFlip(Transform):
             obj["keypoints"] = self._apply_keypoints(obj["keypoints"], h, w)
             # to be implemented: bbox
             obj["bbox"] = self._apply_bbox(obj["bbox"], h, w)
+            obj["bbox"] = [round(x, 2) for x in obj["bbox"]]
         return aug_input

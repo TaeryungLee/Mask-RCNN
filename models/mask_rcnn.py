@@ -22,6 +22,8 @@ class MaskRCNN(nn.Module):
         self.register_buffer("pixel_mean", torch.Tensor(pixel_mean).view(-1, 1, 1))
         self.register_buffer("pixel_std", torch.Tensor(pixel_mean).view(-1, 1, 1))
 
+        self.args = args
+
     def device(self):
         return self.pixel_mean.device
 
@@ -60,8 +62,20 @@ class MaskRCNN(nn.Module):
             # print(pad_img.shape, "pad")
             # print(batched_imgs.shape, "batched_imgs")
             pad_img[..., : img.shape[-2], : img.shape[-1]].copy_(img)
-        
-        return batched_imgs, image_sizes
+        annotations = [x["annotations"] for x in batched_inputs]
+        del images
+        return batched_imgs, image_sizes, annotations
+
+    def forward(self, batched_inputs):
+        # to test batching, checking if each device gets different images
+        # print("device: ", self.device(), "image ids: ", [x["image_id"] for x in batched_inputs])
+        batched_imgs, image_sizes, annotations = self.preprocess(self.args, batched_inputs)
+        backbone_features = self.backbone(batched_imgs.to(self.device()))
+        del batched_inputs
+
+        roi_proposals, rpn_losses = self.proposal_generator(backbone_features, image_sizes, annotations)
+
+        return backbone_features
 
 
 
