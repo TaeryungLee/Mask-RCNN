@@ -10,7 +10,6 @@ class RPN(nn.Module):
         in_features=['p2', 'p3', 'p4', 'p5', 'p6'],
         batch_size_per_image=256,
         positive_fraction=0.5,
-        negative_under_fraction=0.1,
         pre_nms_topk=(2000, 1000),
         post_nms_topk=(1000, 1000),
         nms_thresh=0.7,
@@ -25,7 +24,6 @@ class RPN(nn.Module):
 
         self.batch_size_per_image = batch_size_per_image
         self.positive_fraction = positive_fraction
-        self.negative_under_fraction = negative_under_fraction
 
         self.pre_nms_topk = {"train": pre_nms_topk[0], "test": pre_nms_topk[1]}
         self.post_nms_topk = {"train": post_nms_topk[0], "test": post_nms_topk[1]}
@@ -40,22 +38,114 @@ class RPN(nn.Module):
 
         self.anchor_bases = [ut.create_anchor_bases([size], [0.5, 1, 2]) for size in [32, 64, 128, 256, 512]]
     
-    def loss(
+    def losses(
         self,
         anchors,
         pred_logits,
         gt_labels,
         pred_reg_deltas,
-        gt_boxes
+        gt_boxes,
+        image_sizes
     ):
         """
         Calculate loss from predicted logits and regression deltas.
         Each input argument should be in format:
-            anchors (list[])
+            anchors (list[torch.Tensors]): each element shape (Hi * Wi * (#anchor_bases = (#sizes * #ratios))) * 4
+                list length is equal to the number of feature maps. (default: 5)
         """
         pass
 
+
+    def label_and_sample_anchors(self, anchors, annotations, image_sizes):
+        """
+        Args:
+            anchors (list[torch.Tensors]): each element shape (Hi * Wi * (#anchor_bases = (#sizes * #ratios))) * 4
+                list length is equal to the number of feature maps. (default: 5)
+                sum((Hi * Wi * 1(size) * 3(ratio))
+                -> commonly used for every input images. It is used only to identify anchor boxes.
+            annotations (list[torch.Tensors]): each element contains bounding box for single image in minibatch.
+                list length is equal to minibatch size.(#img)
+            image_sizes (torch.Tensors): [(im.shape[-2], im.shape[-1]) for im in images] into tensor
+        Returns:
+            gt_labels (list[torch.Tensors]): 
+                list length is equal to minibatch size(#img).
+                each elements hold labels for anchors across every feature maps sum((Hi * Wi * 1(size) * 3(ratio)).
+                So, each elements are 1-d vector of length sum((Hi * Wi * 1(size) * 3(ratio)).
+                label values mean: -1 = ignore, 0 = negative, 1 = positive
+            matched_gt_boxes (list[torch.Tensors]): 
+                list length is equal to minibatch size(#img).
+                each elements are R*4 tensors. R = sum((Hi * Wi * 1(size) * 3(ratio))
+                i-th element holds matched ground truth box for R anchors.
+                Values are only assigned for positive labeled anchors.
+        """
+        # list[list[Tensor]]
+        gt_boxes = [[x for x in annotation if (x[0] > 1 and x[1] > 1 and x[2] > 1 and x[3] > 1)] for annotation in annotations]
+        gt_boxes = [torch.stack([x + torch.tensor([0, 0, x[0], x[1]], device=x.device) for x in gt_box], dim=0) for gt_box in gt_boxes]
+        
+        # original size info
+        # anchor_size[0] = #feature maps
+        # anchor_size[1][i] = #anchors for i'th feature maps, (Hi * Wi * 3(ratio) * 1(size))
+        # gt_box_size[0] = #images in minibatch
+        # gt_box_size[1][i] = for i'th image, # of ground truth boxes
+        anchor_size = (len(anchors), (anchors[0].shape[0], anchors[1].shape[0], anchors[2].shape[0], anchors[3].shape[0], anchors[4].shape[0]))
+        gt_box_size = (len(gt_boxes), (gt_boxes[0].shape[0], gt_boxes[1].shape[0]))
+
+
+        # Concatenate both anchors and gt_boxes into 2-d tensor (N * 4)
+        merged_anchor = torch.cat(anchors, dim=0)
+        merged_gt_boxes = torch.cat(gt_boxes, dim=0)
+
+        # print(anchors, gt_boxes)
+        # print(anchor_size, gt_box_size)
+        # print(merged_anchor.shape, merged_gt_boxes.shape)
+        # print(merged_anchor, merged_gt_boxes)
+        
+        gt_labels = []
+        matched_gt_boxes = []
+
+        for image_size_i, gt_boxes_i in zip(image_sizes, gt_boxes):
+            # Issue: 여기 들어가는 게 merged_gt_boxes면 안될거같다.
+            # pairwise_iou = ut.get_pairwise_iou(merged_anchor, merged_gt_boxes)
+            pairwise_iou = ut.get_pairwise_iou(merged_anchor, gt_boxes_i)
+            # matcher
+            # iou threshold = 0.3, 0.7
+            # iou labels = 0, -1, 1
+            matched_idxs, gt_labels_i = ut.find_match([0.3, 0.7], pairwise_iou)
+            del pairwise_iou
+
+            pos_idx, neg_idx, gt_labels_i = ut.subsample_labels(
+                gt_labels_i, 
+                batch_size_per_image=self.batch_size_per_image, 
+                positive_fraction=self.positive_fraction,
+                negative_label=0,
+                positive_label=1,
+                ignore_label=-1
+            )
+
+            # debug: positive anchors
+            # print("\n positive boxes \n")
+
+            # for pos_id in pos_idx:
+            #     print(pos_id)
+            #     print(merged_anchor[pos_id])
+            #     print(pairwise_iou[pos_id:pos_id + 1,:])
+
+            if len(gt_boxes_i) == 0:
+                # These values won't be used anyway.
+                matched_gt_boxes_i = torch.zeros_like(merged_anchor)
+            else:
+                matched_gt_boxes_i = gt_boxes_i[matched_idxs]
+
+            gt_labels.append(gt_labels_i)
+            matched_gt_boxes.append(matched_gt_boxes_i)
+
+        return gt_labels, matched_gt_boxes
+
     def forward(self, features, image_sizes, annotations):
+        """
+        bbox annotations = (x1, y1, delta_x, delta_y) => x2 = x1 + delta_x, y same.
+        anchor annotations = (x1, y1, x2, y2)
+        """
         # build anchors
         features = [features[key] for key in self.in_features]
         feature_shapes = [x.shape[-2:] for x in features]
@@ -78,11 +168,29 @@ class RPN(nn.Module):
         # print("deltas 4", pred_reg_deltas[2].shape)
         # print("deltas 5", pred_reg_deltas[3].shape)
         # print("deltas 6", pred_reg_deltas[4].shape)
-        
 
 
+        # (N, A, Hi, Wi) -> (N, Hi, Wi, A) -> (N, Hi*Wi*A)
+        pred_logits = [
+            score.permute(0, 2, 3, 1).flatten(1) for score in pred_logits
+        ]
 
-        return pred_logits, pred_reg_deltas
+        # (N, A*B, Hi, Wi) -> (N, A, B, Hi, Wi) -> (N, Hi, Wi, A, B) -> (N, Hi*Wi*A, B)
+        pred_reg_deltas = [
+            x.view(x.shape[0], -1, 4, x.shape[-2], x.shape[-1])
+            .permute(0, 3, 4, 1, 2)
+            .flatten(1, -2) for x in pred_reg_deltas
+        ]
+
+        if annotations is not None:
+            gt_labels, gt_boxes = self.label_and_sample_anchors(anchors, annotations, image_sizes)
+            losses = self.losses(anchors, pred_logits, gt_labels, pred_reg_deltas, gt_boxes, image_sizes)
+        else:
+            losses = None
+
+        proposals = self.predict_proposals(anchors, pred_logits, pred_reg_deltas, image_sizes)
+
+        return proposals, losses
 
 class RPNHeads(nn.Module):
     def __init__(

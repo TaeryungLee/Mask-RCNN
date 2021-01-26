@@ -142,7 +142,7 @@ class MSCOCO(Dataset):
         # Finally, I have to convert annotations to instances. (To be implemented)
         # raise NotImplementedError("Convert annotations to instances not implemented")
 
-        return ret
+        return dataset_dict
 
 def test():
     from main.train import parse_args

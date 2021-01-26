@@ -7,12 +7,14 @@ import torch
 from torch.optim.lr_scheduler import MultiStepLR, CosineAnnealingWarmRestarts
 from torch.optim import SGD, Adam
 from torch import nn
+import numpy as np
 import argparse
 from data.loader import build_dataloader
 from utils.default import DefaultTrainer
 from models.mask_rcnn import MaskRCNN
 from models.nets.resnet import ResNet
 from torchvision.models import resnet50
+from utils import visualizer as vis
 from PIL import Image
 
 
@@ -125,17 +127,43 @@ class Trainer(DefaultTrainer):
 
     def test(self):
         for i, data in enumerate(self.train_loader):
-            if i > 25:
+            if i > 20:
                 break
+            
+            print("iteration ", i)
+
+            # print(data[0]["image"])
+            # # print("this is last pixel", data[0]["image"][703][1054])
+            # print(data[0]["image_id"])
+
+            # vis.vis_numpy(data[0]["image"], "vis/" + str(data[0]["image_id"]) + "_pre" + ".jpeg")
+            
+
+            # print(data[2]["image"])
+            # # print("this is last pixel", data[2]["image"][735][919])
+            # print(data[2]["image_id"])
+            # vis.vis_numpy(data[2]["image"], "vis/" + str(data[2]["image_id"]) + "_pre" + ".jpeg")
+            
+            
+
+
 
             # backbone_features = self.model.module.backbone(batched_imgs)
             # batched_imgs, image_sizes = self.model.preprocess(self.args, data)
             # backbone_features = self.model.backbone(batched_imgs)
-            backbone_features = self.model(data)
-            print(backbone_features["p2"].shape)
 
-            if i % 5 == 0:
-                torch.cuda.empty_cache()
+            # outputs = self.model(data)
+
+            batched_imgs, image_sizes, annotations, image_ids = self.model.module.preprocess(self.args, data)
+
+            # print(batched_imgs.shape, image_sizes.shape, annotations.shape, image_ids)
+
+            outputs = self.model(batched_imgs, image_sizes, annotations, image_ids)
+
+            # if i % 5 == 0:
+            #     torch.cuda.empty_cache()
+
+            
 
 
 
