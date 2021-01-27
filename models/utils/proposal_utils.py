@@ -16,7 +16,7 @@ def create_anchor_bases(sizes, aspect_ratios):
             x0, y0, x1, y1 = -w / 2.0, -h / 2.0, w / 2.0, h / 2.0
             anchor_bases.append([x0, y0, x1, y1])
 
-    return torch.tensor(anchor_bases).cuda()
+    return torch.tensor(anchor_bases)
 
 
 def create_anchors(anchor_bases, feature_shapes, strides=[2, 4, 8, 16, 32]):
@@ -33,6 +33,7 @@ def create_anchors(anchor_bases, feature_shapes, strides=[2, 4, 8, 16, 32]):
 
     for grid_size, stride, anchor_base in zip(feature_shapes, strides, anchor_bases):
         (grid_x, grid_y) = grid_size[-2:]
+
         shifts_x = torch.arange(0, grid_x*stride, step=stride, dtype=torch.float32, device=anchor_bases[0].device)
         shifts_y = torch.arange(0, grid_y*stride, step=stride, dtype=torch.float32, device=anchor_bases[0].device)
         shift_y, shift_x = torch.meshgrid(shifts_y, shifts_x)
@@ -214,20 +215,100 @@ def subsample_labels(
 
 
 
-def compute_refinement(box, gt_box):
+def get_gt_deltas(boxes, gt_boxes):
     """
-    compute refinement needed to transform box to gt_box
+    compute deltas needed to transform box into gt_box
+    Args:
+        boxes (Tensor): source boxes N * 4
+        gt_boxes (Tensor): target of the transform N * 4
+    Return:
+        deltas (Tensor): transformation deltas N * (dx, dy, dw, dh)
     """
-    pass
+    src_widths = boxes[:, 2] - boxes[:, 0]
+    src_heights = boxes[:, 3] - boxes[:, 1]
+    src_ctr_x = boxes[:, 0] + 0.5 * src_widths
+    src_ctr_y = boxes[:, 1] + 0.5 * src_heights
+
+    target_widths = gt_boxes[:, 2] - gt_boxes[:, 0]
+    target_heights = gt_boxes[:, 3] - gt_boxes[:, 1]
+    target_ctr_x = gt_boxes[:, 0] + 0.5 * target_widths
+    target_ctr_y = gt_boxes[:, 1] + 0.5 * target_heights
+
+    wx, wy, ww, wh = (1.0, 1.0, 1.0, 1.0)
+    dx = wx * (target_ctr_x - src_ctr_x) / src_widths
+    dy = wy * (target_ctr_y - src_ctr_y) / src_heights
+    dw = ww * torch.log(target_widths / src_widths)
+    dh = wh * torch.log(target_heights / src_heights)
+
+    deltas = torch.stack((dx, dy, dw, dh), dim=1)
+    assert (src_widths > 0).all().item(), "Input boxes to Box2BoxTransform are not valid!"
+
+    return deltas
+
+def predict_proposals(anchors, pred_logits, pred_reg_deltas, image_sizes):
+    """
+    Decode all the predicted box regression deltas to proposals. Find the top proposals
+    by applying NMS and removing boxes that are too small.
+
+    Args:
+        anchors (list[torch.Tensors]): each element shape (Hi * Wi * (#anchor_bases(3) = (#sizes * #ratios))) * 4
+            list length is equal to the number of feature maps. (default: 5)
+        pred_reg_deltas (list[Tensor]): each element shape (N, Hi*Wi*(#anchor_bases(3)), (#box parametrization(4))),
+            representing regression deltas used to transform anchors to proposals.
+    Returns:
+        proposals (list[Instances]): list of N Instances. The i-th Instances
+            stores post_nms_topk object proposals for image i, sorted by their
+            objectness score in descending order.
+    """
+    with torch.no_grad():
+        pred_proposals = [apply_deltas(anchor, pred_reg_delta) for (anchor, pred_reg_delta) in zip(anchors, pred_reg_deltas)]
+        # Todo: find top 1000, NMS
+        
 
 
-def do_regression(anchors, deltas):
+def apply_deltas(boxes, deltas):
     """
     Perform anchor transformation defined in deltas.
+
+    Args:
+        deltas (Tensor): transformation deltas N * R * 4
+        boxes (Tensor): boxes to be transformed R * 4
+            where R is number of anchor box predictions in single feature map
+            N is number of images in minibatch(2)
+            (Anchors are common for every images in minibatch, since they are padded into same size)
+    Return:
+        transformed_boxes (Tensor): transformed boxes N * R * 4
     """
-    pass
+    deltas = deltas.float()  # ensure fp32 for decoding precision
+    boxes = boxes.to(deltas.dtype)
 
+    widths = boxes[:, 2] - boxes[:, 0]
+    heights = boxes[:, 3] - boxes[:, 1]
+    ctr_x = boxes[:, 0] + 0.5 * widths
+    ctr_y = boxes[:, 1] + 0.5 * heights
 
+    wx, wy, ww, wh = (1.0, 1.0, 1.0, 1.0)
+    dx = deltas[:, :, 0] / wx
+    dy = deltas[:, :, 1] / wy
+    dw = deltas[:, :, 2] / ww
+    dh = deltas[:, :, 3] / wh
+
+    # Prevent sending too large values into torch.exp()
+    dw = torch.clamp(dw, max=math.log(1000.0 / 16))
+    dh = torch.clamp(dh, max=math.log(1000.0 / 16))
+
+    pred_ctr_x = dx * widths + ctr_x
+    pred_ctr_y = dy * heights + ctr_y
+    pred_w = torch.exp(dw) * widths
+    pred_h = torch.exp(dh) * heights
+
+    pred_boxes = torch.zeros_like(deltas)
+    pred_boxes[:, :, :1] = (pred_ctr_x - 0.5 * pred_w).unsqueeze(2)
+    pred_boxes[:, :, 1:2] = (pred_ctr_y - 0.5 * pred_h).unsqueeze(2)
+    pred_boxes[:, :, 2:3] = (pred_ctr_x + 0.5 * pred_w).unsqueeze(2)
+    pred_boxes[:, :, 3:] = (pred_ctr_y + 0.5 * pred_h).unsqueeze(2)
+
+    return pred_boxes
 
 def test_anchor():
     sizes = [32, 64]

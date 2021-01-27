@@ -37,6 +37,7 @@ class RPN(nn.Module):
         self.smooth_l1_beta = smooth_l1_beta
 
         self.anchor_bases = [ut.create_anchor_bases([size], [0.5, 1, 2]) for size in [32, 64, 128, 256, 512]]
+        
     
     def losses(
         self,
@@ -50,12 +51,53 @@ class RPN(nn.Module):
         """
         Calculate loss from predicted logits and regression deltas.
         Each input argument should be in format:
-            anchors (list[torch.Tensors]): each element shape (Hi * Wi * (#anchor_bases = (#sizes * #ratios))) * 4
+            anchors (list[torch.Tensors]): each element shape (Hi * Wi * (#anchor_bases(3) = (#sizes * #ratios))) * 4
                 list length is equal to the number of feature maps. (default: 5)
+            pred_logits (list[Tensor]): each element shape (N, Hi*Wi*(#anchor_bases)), 
+                representing the predicted objectness logits, for all anchors.
+                list length is equal to the number of feature maps.
+            pred_reg_deltas (list[Tensor]): each element shape (N, Hi*Wi*(#anchor_bases(3)), (#box parametrization(4))),
+                representing regression deltas used to transform anchors to proposals.
+            gt_labels (list[Tensor]): output gt_labels of label_and_sample_anchors
+            gt_boxes (list[Tensor]): output matched_gt_boxes of label_and_sample_anchors 
         """
-        pass
+        num_images = len(gt_labels)
+        gt_labels = torch.stack(gt_labels)  # (N, sum(Hi*Wi*Ai))
+
+        pos_mask = gt_labels == 1
+        neg_mask = gt_labels == 0
+
+        # num_pos_anchors = pos_mask.sum().item()
+        # num_neg_anchors = neg_mask.sum().item()
+
+        merged_anchors = torch.cat(anchors, dim=0)
+        gt_anchor_deltas = [ut.get_gt_deltas(merged_anchors, k) for k in gt_boxes]
+        gt_anchor_deltas = torch.stack(gt_anchor_deltas)
 
 
+
+        loc_loss = F.smooth_l1_loss(
+            torch.cat(pred_reg_deltas, dim=1)[pos_mask],
+            gt_anchor_deltas[pos_mask],
+            self.smooth_l1_beta,
+            reduction='sum'
+        )
+
+        valid_mask = gt_labels >= 0
+        obj_loss = F.binary_cross_entropy_with_logits(
+            torch.cat(pred_logits, dim=1)[valid_mask],
+            gt_labels[valid_mask].to(torch.float32),
+            reduction='sum'
+        )
+        normalizer = self.batch_size_per_image * num_images
+        losses = {
+            "loss_rpn_cls": obj_loss / normalizer,
+            "loss_rpn_loc": loc_loss / normalizer,
+        }
+        losses = {k: v * self.loss_weight.get(k, 1.0) for k, v in losses.items()}
+        return losses
+
+    @torch.no_grad()
     def label_and_sample_anchors(self, anchors, annotations, image_sizes):
         """
         Args:
@@ -79,7 +121,8 @@ class RPN(nn.Module):
                 Values are only assigned for positive labeled anchors.
         """
         # list[list[Tensor]]
-        gt_boxes = [[x for x in annotation if (x[0] > 1 and x[1] > 1 and x[2] > 1 and x[3] > 1)] for annotation in annotations]
+
+        gt_boxes = [[x for x in annotation if not (x[0] == 0 and x[1] == 0 and x[2] == 0 and x[3] == 0)] for annotation in annotations]
         gt_boxes = [torch.stack([x + torch.tensor([0, 0, x[0], x[1]], device=x.device) for x in gt_box], dim=0) for gt_box in gt_boxes]
         
         # original size info
@@ -106,6 +149,7 @@ class RPN(nn.Module):
         for image_size_i, gt_boxes_i in zip(image_sizes, gt_boxes):
             # Issue: 여기 들어가는 게 merged_gt_boxes면 안될거같다.
             # pairwise_iou = ut.get_pairwise_iou(merged_anchor, merged_gt_boxes)
+
             pairwise_iou = ut.get_pairwise_iou(merged_anchor, gt_boxes_i)
             # matcher
             # iou threshold = 0.3, 0.7
@@ -136,6 +180,11 @@ class RPN(nn.Module):
             else:
                 matched_gt_boxes_i = gt_boxes_i[matched_idxs]
 
+            # print("shapes")
+            # print(matched_gt_boxes_i.shape)
+            # print(gt_labels_i.shape)
+            # print(torch.nonzero(matched_gt_boxes_i).numel())
+
             gt_labels.append(gt_labels_i)
             matched_gt_boxes.append(matched_gt_boxes_i)
 
@@ -150,7 +199,7 @@ class RPN(nn.Module):
         features = [features[key] for key in self.in_features]
         feature_shapes = [x.shape[-2:] for x in features]
         
-
+        self.anchor_bases = [x.to(features[0].device) for x in self.anchor_bases]
         anchors = ut.create_anchors(self.anchor_bases, feature_shapes)
 
         pred_logits, pred_reg_deltas = self.rpn_head(features)
@@ -175,6 +224,9 @@ class RPN(nn.Module):
             score.permute(0, 2, 3, 1).flatten(1) for score in pred_logits
         ]
 
+        # print(pred_reg_deltas[0].shape)
+        # print(pred_reg_deltas[1].shape)
+
         # (N, A*B, Hi, Wi) -> (N, A, B, Hi, Wi) -> (N, Hi, Wi, A, B) -> (N, Hi*Wi*A, B)
         pred_reg_deltas = [
             x.view(x.shape[0], -1, 4, x.shape[-2], x.shape[-1])
@@ -182,13 +234,16 @@ class RPN(nn.Module):
             .flatten(1, -2) for x in pred_reg_deltas
         ]
 
+        # print(pred_reg_deltas[0].shape)
+        # print(pred_reg_deltas[1].shape)
+
         if annotations is not None:
             gt_labels, gt_boxes = self.label_and_sample_anchors(anchors, annotations, image_sizes)
             losses = self.losses(anchors, pred_logits, gt_labels, pred_reg_deltas, gt_boxes, image_sizes)
         else:
             losses = None
-
-        proposals = self.predict_proposals(anchors, pred_logits, pred_reg_deltas, image_sizes)
+    
+        proposals = ut.predict_proposals(anchors, pred_logits, pred_reg_deltas, image_sizes)
 
         return proposals, losses
 
