@@ -387,8 +387,14 @@ def find_top_rpn_proposals(pred_proposals, pred_logits, image_sizes, is_training
         # clip boxes into image size
         boxes = clip(boxes, image_size)
 
+        # filter empty boxes
+        keep = torch.logical_not(torch.logical_or(boxes[:, 0] == boxes[:, 2], boxes[:, 1] == boxes[:, 3]))
+        if keep.sum().item() != len(boxes):
+            boxes, scores_per_img, lvl = boxes[keep], scores_per_img[keep], lvl[keep]
+
         # apply nms
         keep = apply_nms(boxes, scores_per_img, lvl, nms_thresh)
+
         # slice topk
         keep = keep[:post_nms_topk]
 
