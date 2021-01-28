@@ -32,7 +32,7 @@ def visualizer(img, bbox, keypoints, i):
 
 
 def add_rectangle(img, color, lt, rb):
-    return rectangle(img, lt, rb, color, 2)
+    return rectangle(img, lt, rb, color, 1)
 
 def add_points(img, color, point):
     return circle(img, point, 4, color, -1)
@@ -90,7 +90,7 @@ def vis_numpy(np_image, out_name):
 
     # cv2.imwrite(out_name, np_image)
 
-def vis_tensor_with_bbox(tensor_image, bboxes, out_name):
+def vis_tensor_with_bbox(tensor_image, bboxes, box_format, out_name):
     img = tensor_image.clone().cpu().detach()
     img = img.permute(1, 2, 0).contiguous()
     img = img.numpy().astype("uint8")
@@ -101,13 +101,20 @@ def vis_tensor_with_bbox(tensor_image, bboxes, out_name):
     for bbox in bboxes:
         if bbox[0] < 1 and bbox[1] < 1 and bbox[2] < 1 and bbox[3] < 1:
             continue
-        lt = (int(bbox[0]), int(bbox[1]))
-        rb = (int(bbox[0]) + int(bbox[2]), int(bbox[1]) + int(bbox[3]))
+
+        if box_format == "bbox":
+            lt = (int(bbox[0]), int(bbox[1]))
+            rb = (int(bbox[0]) + int(bbox[2]), int(bbox[1]) + int(bbox[3]))
+        elif box_format == "anchor":
+            lt = (int(bbox[0]), int(bbox[1]))
+            rb = (int(bbox[2]), int(bbox[3]))
+        else:
+            raise TypeError("unknown box format in vis")
         # print(bbox, lt, rb)
         img = add_rectangle(img, (0, 0, 255), lt, rb)
     
     cv2.imwrite(out_name, img)
 
-def vis_denorm_tensor_with_bbox(tensor_image, bboxes, out_name):
+def vis_denorm_tensor_with_bbox(tensor_image, bboxes, box_format, out_name):
     img = denormalize_tensor(tensor_image)
-    vis_tensor_with_bbox(img, bboxes, out_name)
+    vis_tensor_with_bbox(img, bboxes, box_format, out_name)

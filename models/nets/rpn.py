@@ -195,6 +195,8 @@ class RPN(nn.Module):
         bbox annotations = (x1, y1, delta_x, delta_y) => x2 = x1 + delta_x, y same.
         anchor annotations = (x1, y1, x2, y2)
         """
+        # is training
+        is_training = (annotations is not None)
         # build anchors
         features = [features[key] for key in self.in_features]
         feature_shapes = [x.shape[-2:] for x in features]
@@ -237,13 +239,13 @@ class RPN(nn.Module):
         # print(pred_reg_deltas[0].shape)
         # print(pred_reg_deltas[1].shape)
 
-        if annotations is not None:
+        if is_training:
             gt_labels, gt_boxes = self.label_and_sample_anchors(anchors, annotations, image_sizes)
             losses = self.losses(anchors, pred_logits, gt_labels, pred_reg_deltas, gt_boxes, image_sizes)
         else:
             losses = None
     
-        proposals = ut.predict_proposals(anchors, pred_logits, pred_reg_deltas, image_sizes)
+        proposals = ut.predict_proposals(anchors, pred_logits, pred_reg_deltas, image_sizes, is_training)
 
         return proposals, losses
 

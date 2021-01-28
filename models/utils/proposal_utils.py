@@ -3,6 +3,7 @@ Anchors and NMS implemented here
 """
 import math
 import torch
+from torchvision.ops import boxes as box_ops
 
 
 def create_anchor_bases(sizes, aspect_ratios):
@@ -19,15 +20,13 @@ def create_anchor_bases(sizes, aspect_ratios):
     return torch.tensor(anchor_bases)
 
 
-def create_anchors(anchor_bases, feature_shapes, strides=[2, 4, 8, 16, 32]):
+def create_anchors(anchor_bases, feature_shapes, strides=[4, 8, 16, 32, 64]):
     """
     Create anchor boxes for each scales.
 
     Returns list of torch.tensors in shape (Hi * Wi * (#anchor_bases = (#sizes * #ratios))) * 4.
     Length of return list is equal to the number of feature maps.
     """
-    # Additional args
-    strides = [2, 4, 8, 16, 32]
 
     anchors = []
 
@@ -36,6 +35,12 @@ def create_anchors(anchor_bases, feature_shapes, strides=[2, 4, 8, 16, 32]):
 
         shifts_x = torch.arange(0, grid_x*stride, step=stride, dtype=torch.float32, device=anchor_bases[0].device)
         shifts_y = torch.arange(0, grid_y*stride, step=stride, dtype=torch.float32, device=anchor_bases[0].device)
+
+        # print(grid_x, grid_y)
+        # print(grid_x * stride, grid_y * stride)
+        # print(shifts_x)
+        # print(shifts_y)
+
         shift_y, shift_x = torch.meshgrid(shifts_y, shifts_x)
 
         shift_x = shift_x.reshape(-1)
@@ -245,26 +250,6 @@ def get_gt_deltas(boxes, gt_boxes):
 
     return deltas
 
-def predict_proposals(anchors, pred_logits, pred_reg_deltas, image_sizes):
-    """
-    Decode all the predicted box regression deltas to proposals. Find the top proposals
-    by applying NMS and removing boxes that are too small.
-
-    Args:
-        anchors (list[torch.Tensors]): each element shape (Hi * Wi * (#anchor_bases(3) = (#sizes * #ratios))) * 4
-            list length is equal to the number of feature maps. (default: 5)
-        pred_reg_deltas (list[Tensor]): each element shape (N, Hi*Wi*(#anchor_bases(3)), (#box parametrization(4))),
-            representing regression deltas used to transform anchors to proposals.
-    Returns:
-        proposals (list[Instances]): list of N Instances. The i-th Instances
-            stores post_nms_topk object proposals for image i, sorted by their
-            objectness score in descending order.
-    """
-    with torch.no_grad():
-        pred_proposals = [apply_deltas(anchor, pred_reg_delta) for (anchor, pred_reg_delta) in zip(anchors, pred_reg_deltas)]
-        # Todo: find top 1000, NMS
-        
-
 
 def apply_deltas(boxes, deltas):
     """
@@ -309,6 +294,136 @@ def apply_deltas(boxes, deltas):
     pred_boxes[:, :, 3:] = (pred_ctr_y + 0.5 * pred_h).unsqueeze(2)
 
     return pred_boxes
+
+def clip(boxes, image_size):
+    """
+    Args:
+        boxes (Tensor): shape in ((#boxes), 4)
+        image_size (tuple[int]): (H, W)
+    Return:
+        boxes (Tensor): in place transform, fit into image size.
+    """
+    (h, w) = image_size
+    boxes[:, :1] = torch.clamp(boxes[:, :1], min=0, max=w)
+    boxes[:, 1:2] = torch.clamp(boxes[:, 1:2], min=0, max=h)
+    boxes[:, 2:3] = torch.clamp(boxes[:, 2:3], min=0, max=w)
+    boxes[:, 3:] = torch.clamp(boxes[:, 3:], min=0, max=h)
+    return boxes
+
+
+def apply_nms(boxes, scores_per_img, lvl, nms_thresh):
+    return box_ops.batched_nms(boxes.float(), scores_per_img, lvl, nms_thresh)
+
+
+def find_top_rpn_proposals(pred_proposals, pred_logits, image_sizes, is_training):
+    """
+    For each feature map, select the 'pre_nms_topk' highest scoring proposals,
+    apply NMS, and clip proposals. Return the 'post_nms_topk'
+    highest scoring proposals among all the feature maps for each image.
+    Args:
+        proposals (list[Tensor]): list length is number of feature maps.
+            each list elements are transformed boxes in shape of (N, (Hi * Wi * 3), 4)
+        pred_logits (list[Tensor]): list length is number of feature maps.
+            each list elements are logits in shape of (N, (Hi * Wi * 3)).
+        image_sizes (Tensor): (N, 2) tensor holding height and width of original image.
+
+    Return:
+        proposals (list[torch.Tensors]): i'th element contains 'post_nms_topk' object proposals for image i,
+            sorted by their objectness score in descending order.
+            list length is number of images in minibatch.
+    """
+
+    image_sizes = image_sizes.tolist()
+    num_images = len(image_sizes)
+
+    device = pred_proposals[0].device
+
+    # Hyperparameters
+    nms_thresh = 0.7
+    pre_nms_topk = 2000 if is_training else 1000
+    post_nms_topk = 1000
+
+    # Select 'pre_nms_topk' highest scoring proposals from each feature map (level)
+    topk_scores = []
+    topk_proposals = []
+
+    # 셋이 나란히 append할건데, 나중에 cat했을때 어느 피쳐맵 레벨에서 나왔는지 확인하기 위함.
+    level_ids = []
+    batch_idx = torch.arange(num_images, device=device)
+
+    for level_id, (proposals_i, logits_i) in enumerate(zip(pred_proposals, pred_logits)):
+        R = logits_i.shape[1]
+        num_proposals_i = min(R, pre_nms_topk)
+
+        logits_i, idx = logits_i.sort(descending=True, dim=1)
+        topk_scores_i = logits_i.narrow(1, 0, num_proposals_i)
+        topk_idx = idx.narrow(1, 0, num_proposals_i)
+
+        topk_proposals_i = proposals_i[batch_idx[:, None], topk_idx]
+
+        topk_proposals.append(topk_proposals_i)
+        topk_scores.append(topk_scores_i)
+        level_ids.append(torch.full((num_proposals_i, ), level_id, dtype=torch.int64, device=device))
+    
+    topk_scores = torch.cat(topk_scores, dim=1)
+    topk_proposals = torch.cat(topk_proposals, dim=1)
+    level_ids = torch.cat(level_ids, dim=0)
+
+    # Enumerate over images, apply NMS, choose topk results
+    results = []
+    for n, image_size in enumerate(image_sizes):
+        boxes = topk_proposals[n]
+        scores_per_img = topk_scores[n]
+        lvl = level_ids
+
+        valid_mask = torch.isfinite(boxes).all(dim=1) & torch.isfinite(scores_per_img)
+        if not valid_mask.all():
+            if is_training:
+                raise FloatingPointError("Predicted boxes or scores contain Inf/NaN. Training has diverged.")
+            boxes = boxes[valid_mask]
+            scores_per_img = scores_per_img[valid_mask]
+            lvl = lvl[valid_mask]
+
+        # clip boxes into image size
+        boxes = clip(boxes, image_size)
+
+        # apply nms
+        keep = apply_nms(boxes, scores_per_img, lvl, nms_thresh)
+        # slice topk
+        keep = keep[:post_nms_topk]
+
+        results.append(boxes[keep])
+        # If objectness logits needed, then modify code to use scores_per_img[keep]
+
+    return results
+    
+
+def predict_proposals(anchors, pred_logits, pred_reg_deltas, image_sizes, is_training):
+    """
+    Decode all the predicted box regression deltas to proposals. Find the top proposals
+    by applying NMS and removing boxes that are too small.
+
+    Args:
+        anchors (list[torch.Tensors]): each element shape (Hi * Wi * (#anchor_bases(3) = (#sizes * #ratios))) * 4
+            list length is equal to the number of feature maps. (default: 5)
+        pred_reg_deltas (list[Tensor]): each element shape (N, Hi*Wi*(#anchor_bases(3)), (#box parametrization(4))),
+            representing regression deltas used to transform anchors to proposals.
+    Returns:
+        proposals (list[torch.Tensors]): i'th element contains 'post_nms_topk' object proposals for image i,
+            sorted by their objectness score in descending order.
+            list length is number of images in minibatch.
+    """
+    with torch.no_grad():
+        pred_proposals = [apply_deltas(anchor, pred_reg_delta) for (anchor, pred_reg_delta) in zip(anchors, pred_reg_deltas)]
+        # Todo: find top 1000, NMS
+        
+        return find_top_rpn_proposals(pred_proposals, pred_logits, image_sizes, is_training)
+
+
+
+
+
+
 
 def test_anchor():
     sizes = [32, 64]

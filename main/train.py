@@ -127,7 +127,7 @@ class Trainer(DefaultTrainer):
 
     def test(self):
         for i, data in enumerate(self.train_loader):
-            if i > 20:
+            if i == 1:
                 break
             
             print("iteration ", i)
@@ -144,9 +144,6 @@ class Trainer(DefaultTrainer):
             # print(data[2]["image_id"])
             # vis.vis_numpy(data[2]["image"], "vis/" + str(data[2]["image_id"]) + "_pre" + ".jpeg")
             
-            
-
-
 
             # backbone_features = self.model.module.backbone(batched_imgs)
             # batched_imgs, image_sizes = self.model.preprocess(self.args, data)
@@ -155,8 +152,6 @@ class Trainer(DefaultTrainer):
             # outputs = self.model(data)
 
             batched_imgs, image_sizes, annotations, image_ids = self.model.module.preprocess(self.args, data)
-
-            # print(batched_imgs.shape, image_sizes.shape, annotations.shape, image_ids)
 
             outputs = self.model(batched_imgs, image_sizes, annotations, image_ids)
 

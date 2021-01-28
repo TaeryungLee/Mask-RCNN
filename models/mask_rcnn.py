@@ -30,7 +30,7 @@ class MaskRCNN(nn.Module):
     def device(self):
         return self.pixel_mean.device
 
-    
+    @torch.no_grad()
     def preprocess(self, args, batched_inputs):
         """
         Normalize, pad and batch the input images.
@@ -142,6 +142,13 @@ class MaskRCNN(nn.Module):
         backbone_features = self.backbone(batched_imgs)
 
         roi_proposals, rpn_losses = self.proposal_generator(backbone_features, image_sizes, annotations)
+
+        # print(image_ids[0])
+        # print(image_sizes[0])
+        # print(roi_proposals[0][:10])
+
+        vis_denorm_tensor_with_bbox(batched_imgs[0], roi_proposals[0][:100], "anchor", "vis/" + str(int(image_ids[0])) + "_bbox.jpeg")
+        vis_denorm_tensor_with_bbox(batched_imgs[1], roi_proposals[1][:100], "anchor", "vis/" + str(int(image_ids[1])) + "_bbox.jpeg")
 
         return backbone_features
 
