@@ -1,0 +1,21 @@
+<구현 3주차>
+Implementations:
+Region Proposal Network
+Training code
+Visualization
+
+Issues solved:
+Multi-gpu data feeding
+  각 gpu가 똑같은 데이터를 복사해서 받는 현상을 발견
+  Dataparallel 사용시 데이터 입력 형태가 dim=0에서 나눠지 수 있는 형태가 되도록 preprocessing 수정
+
+Positive anchor sampling 중 set_low_quality_matches 문제
+  해당 옵션은 Faster R-CNN 3.1.2. Anchor sampling case 두 가지 중에서 아래에 해당하는 케이스
+    i)  the anchor/anchors with the highest Intersection-over- Union (IoU) overlap with a ground-truth box.
+  이 옵션이 너무 낮은 overlap에 해당하는 박스들도 포함시키는 현상이 발생
+  일정 threshold를 부여하는 것으로 해결
+
+Issues remaining:
+학습 진행 시 결과가 수렴하지 않았으며, proposal 결과에서 anchor box 분포가 이상함.
+코드 디버깅 현재 진행 중
+
