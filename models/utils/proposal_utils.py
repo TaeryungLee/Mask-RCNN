@@ -371,6 +371,7 @@ def find_top_rpn_proposals(pred_proposals, pred_logits, image_sizes, is_training
 
     # Enumerate over images, apply NMS, choose topk results
     results = []
+
     for n, image_size in enumerate(image_sizes):
         boxes = topk_proposals[n]
         scores_per_img = topk_scores[n]
@@ -393,7 +394,7 @@ def find_top_rpn_proposals(pred_proposals, pred_logits, image_sizes, is_training
             boxes, scores_per_img, lvl = boxes[keep], scores_per_img[keep], lvl[keep]
 
         # apply nms
-        keep = apply_nms(boxes, scores_per_img, lvl, nms_thresh)
+        keep = apply_nms(boxes, scores_per_img, lvl, 0.999)
 
         # slice topk
         keep = keep[:post_nms_topk]

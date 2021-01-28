@@ -18,7 +18,7 @@ class MaskRCNN(nn.Module):
         pixel_std
     ):
         super().__init__()
-        self.backbone = build_backbone(args)
+        self.backbone, self.loaded_layers = build_backbone(args)
         self.proposal_generator = build_proposal_generator(args)
         self.roi_heads = build_roi_heads(args)
 
@@ -147,11 +147,10 @@ class MaskRCNN(nn.Module):
         # print(image_sizes[0])
         # print(roi_proposals[0][:10])
 
-        vis_denorm_tensor_with_bbox(batched_imgs[0], roi_proposals[0][:100], "anchor", "vis/" + str(int(image_ids[0])) + "_bbox.jpeg")
-        vis_denorm_tensor_with_bbox(batched_imgs[1], roi_proposals[1][:100], "anchor", "vis/" + str(int(image_ids[1])) + "_bbox.jpeg")
+        # vis_denorm_tensor_with_bbox(batched_imgs[0], roi_proposals[0][:100], "anchor", "vis/" + str(int(image_ids[0])) + "_bbox.jpeg")
+        # vis_denorm_tensor_with_bbox(batched_imgs[1], roi_proposals[1][:100], "anchor", "vis/" + str(int(image_ids[1])) + "_bbox.jpeg")
 
-        return backbone_features
-
+        return roi_proposals, rpn_losses
 
 def align_annotation_size(annotations):
     max_len = max([ann.shape[0] for ann in annotations])
