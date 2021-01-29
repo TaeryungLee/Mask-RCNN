@@ -394,7 +394,7 @@ def find_top_rpn_proposals(pred_proposals, pred_logits, image_sizes, is_training
             boxes, scores_per_img, lvl = boxes[keep], scores_per_img[keep], lvl[keep]
 
         # apply nms
-        keep = apply_nms(boxes, scores_per_img, lvl, 0.999)
+        keep = apply_nms(boxes, scores_per_img, lvl, nms_thresh)
 
         # slice topk
         keep = keep[:post_nms_topk]

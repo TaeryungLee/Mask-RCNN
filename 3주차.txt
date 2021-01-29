@@ -12,7 +12,7 @@ Multi-gpu data feeding
 Positive anchor sampling 중 set_low_quality_matches 문제
   해당 옵션은 Faster R-CNN 3.1.2. Anchor sampling case 두 가지 중에서 아래에 해당하는 케이스
     i)  the anchor/anchors with the highest Intersection-over- Union (IoU) overlap with a ground-truth box.
-  이 옵션이 너무 낮은 overlap에 해당하는 박스들도 포함시키는 현상이 발생
+  이 옵션이 너무 낮은 점수를 받은 박스들도 포함시키는 현상이 발생
   일정 threshold를 부여하는 것으로 해결
 
 Issues remaining:

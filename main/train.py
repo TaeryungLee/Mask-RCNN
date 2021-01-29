@@ -138,11 +138,12 @@ class Trainer(DefaultTrainer):
             self.optimizer.zero_grad()
             batched_imgs, image_sizes, annotations, image_ids = self.model.module.preprocess(self.args, data)
             output, loss_dict = self.model(batched_imgs, image_sizes, annotations, image_ids)
-
-            losses = sum(loss_dict.values())
-            assert torch.isfinite(losses).all(), loss_dict
             
-            losses.sum().backward()
+            losses = {k : v.sum() for k, v in loss_dict.items()}
+            loss = losses["loss_rpn_cls"] + losses["loss_rpn_loc"] * 10
+            # assert torch.isfinite(losses).all(), loss_dict
+            
+            loss.backward()
             self.optimizer.step()
 
             self.lr_scheduler.step()
@@ -150,9 +151,15 @@ class Trainer(DefaultTrainer):
             if i % 100 == 0:
                 print("iter: {}, loss: {}".format(i, losses))
             
-            if i % 100 == 0:
-                vis_denorm_tensor_with_bbox(batched_imgs[0], output[0],
+            if i % 500 == 0:
+                vis_denorm_tensor_with_bbox(batched_imgs[0], output[0][0:30],
                     "anchor", "vis/" + str(i) + "_" + str(int(image_ids[0])) + "_" + "_bbox.jpeg")
+                vis_denorm_tensor_with_bbox(batched_imgs[1], output[1][0:30],
+                    "anchor", "vis/" + str(i) + "_" + str(int(image_ids[1])) + "_" + "_bbox.jpeg")
+                vis_denorm_tensor_with_bbox(batched_imgs[2], output[0][1000:1030],
+                    "anchor", "vis/" + str(i) + "_" + str(int(image_ids[2])) + "_" + "_bbox.jpeg")
+                vis_denorm_tensor_with_bbox(batched_imgs[3], output[1][1000:1030],
+                    "anchor", "vis/" + str(i) + "_" + str(int(image_ids[3])) + "_" + "_bbox.jpeg")
         
 
 
@@ -169,14 +176,29 @@ class Trainer(DefaultTrainer):
 
     def test(self):
         for i, data in enumerate(self.train_loader):
-            if i == 10:
+            if i == 1:
                 break
             
             print("iteration ", i)
             
             batched_imgs, image_sizes, annotations, image_ids = self.model.module.preprocess(self.args, data)
 
-            outputs = self.model(batched_imgs, image_sizes, annotations, image_ids)
+            output, loss_dict = self.model(batched_imgs, image_sizes, annotations, image_ids)
+
+            print(loss_dict)
+
+            losses = {k : v.sum() for k, v in loss_dict.items()}
+            loss = losses["loss_rpn_cls"] + losses["loss_rpn_loc"] * 10
+
+
+            vis_denorm_tensor_with_bbox(batched_imgs[0], output[0][0:30],
+                "anchor", "vis/" + str(i) + "_" + str(int(image_ids[0])) + "_" + "_bbox.jpeg")
+            vis_denorm_tensor_with_bbox(batched_imgs[1], output[1][0:30],
+                "anchor", "vis/" + str(i) + "_" + str(int(image_ids[1])) + "_" + "_bbox.jpeg")
+            vis_denorm_tensor_with_bbox(batched_imgs[2], output[0][1000:1030],
+                "anchor", "vis/" + str(i) + "_" + str(int(image_ids[2])) + "_" + "_bbox.jpeg")
+            vis_denorm_tensor_with_bbox(batched_imgs[3], output[1][1000:1030],
+                "anchor", "vis/" + str(i) + "_" + str(int(image_ids[3])) + "_" + "_bbox.jpeg")
 
 
             

@@ -146,6 +146,11 @@ class MaskRCNN(nn.Module):
         # print(image_ids[0])
         # print(image_sizes[0])
         # print(roi_proposals[0][:10])
+        # print(roi_proposals[0][-10:])
+
+        # print(roi_proposals[1][:10])
+        # print(roi_proposals[1][-10:])
+
 
         # vis_denorm_tensor_with_bbox(batched_imgs[0], roi_proposals[0][:100], "anchor", "vis/" + str(int(image_ids[0])) + "_bbox.jpeg")
         # vis_denorm_tensor_with_bbox(batched_imgs[1], roi_proposals[1][:100], "anchor", "vis/" + str(int(image_ids[1])) + "_bbox.jpeg")
