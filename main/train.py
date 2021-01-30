@@ -185,20 +185,21 @@ class Trainer(DefaultTrainer):
 
             output, loss_dict = self.model(batched_imgs, image_sizes, annotations, image_ids)
 
-            print(loss_dict)
 
-            losses = {k : v.sum() for k, v in loss_dict.items()}
-            loss = losses["loss_rpn_cls"] + losses["loss_rpn_loc"] * 10
+            
+
+            # losses = {k : v.sum() for k, v in loss_dict.items()}
+            # loss = losses["loss_rpn_cls"] + losses["loss_rpn_loc"] * 10
 
 
-            vis_denorm_tensor_with_bbox(batched_imgs[0], output[0][0:30],
-                "anchor", "vis/" + str(i) + "_" + str(int(image_ids[0])) + "_" + "_bbox.jpeg")
-            vis_denorm_tensor_with_bbox(batched_imgs[1], output[1][0:30],
-                "anchor", "vis/" + str(i) + "_" + str(int(image_ids[1])) + "_" + "_bbox.jpeg")
-            vis_denorm_tensor_with_bbox(batched_imgs[2], output[0][1000:1030],
-                "anchor", "vis/" + str(i) + "_" + str(int(image_ids[2])) + "_" + "_bbox.jpeg")
-            vis_denorm_tensor_with_bbox(batched_imgs[3], output[1][1000:1030],
-                "anchor", "vis/" + str(i) + "_" + str(int(image_ids[3])) + "_" + "_bbox.jpeg")
+            # vis_denorm_tensor_with_bbox(batched_imgs[0], output[0][0:30],
+            #     "anchor", "vis/" + str(i) + "_" + str(int(image_ids[0])) + "_" + "_bbox.jpeg")
+            # vis_denorm_tensor_with_bbox(batched_imgs[1], output[1][0:30],
+            #     "anchor", "vis/" + str(i) + "_" + str(int(image_ids[1])) + "_" + "_bbox.jpeg")
+            # vis_denorm_tensor_with_bbox(batched_imgs[2], output[0][1000:1030],
+            #     "anchor", "vis/" + str(i) + "_" + str(int(image_ids[2])) + "_" + "_bbox.jpeg")
+            # vis_denorm_tensor_with_bbox(batched_imgs[3], output[1][1000:1030],
+            #     "anchor", "vis/" + str(i) + "_" + str(int(image_ids[3])) + "_" + "_bbox.jpeg")
 
 
             
@@ -213,9 +214,9 @@ def main():
     print(sys.argv)
     args = parse_args()
     trainer = Trainer(args)
-    trainer.train()
+    # trainer.train()
 
-    # trainer.test()
+    trainer.test()
 
 if __name__ == "__main__":
     main()
