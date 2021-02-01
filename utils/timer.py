@@ -10,12 +10,9 @@ import time
 class Timer(object):
     """A simple timer."""
     def __init__(self):
-        self.total_time = 0.
         self.calls = 0
         self.start_time = 0.
         self.diff = 0.
-        self.average_time = 0.
-        self.warm_up = 0
 
     def tic(self):
         # using time.time instead of time.clock because time time.clock
@@ -23,23 +20,26 @@ class Timer(object):
 
         # Record initial timestamp
         self.start_time = time.time()
+        self.calls = 0
 
-    def toc(self, average=True):
-        # Time elapsed
+    def toc(self):
+        # Time elapsed, Average time
+        self.calls += 1
         self.diff = time.time() - self.start_time
 
-        # For the first 10 calls, record only self.diff
-        if self.warm_up < 10:
-            self.warm_up += 1
-            return self.diff
-        
-        # After that, self.total_time = T(11) + ... + T(n)
-        else:
-            self.total_time += self.diff
-            self.calls += 1
-            self.average_time = self.total_time / self.calls
+        return self.diff, (self.diff / self.calls)
 
-        if average:
-            return self.average_time
-        else:
-            return self.diff
+def sec2minhrs(sec):
+    if sec < 60:
+        return 0, 0, round(sec)
+    
+    m = int(sec / 60)
+    s = sec - m * 60
+    
+    if m < 60:
+        return 0, m, round(s)
+    
+    h = int(m / 60)
+    m = m - h * 60
+
+    return h, m, round(s)

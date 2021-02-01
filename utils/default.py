@@ -22,8 +22,8 @@ class DefaultTrainer(metaclass=ABCMeta):
         # Timer and logger
         # Timer reference: https://github.com/mks0601/I2L-MeshNet_RELEASE/
         self.train_timer = Timer()
-        self.gpu_timer = Timer()
-        self.read_timer = Timer()
+        self.eval_timer = Timer()
+
 
         # self.logger = colorLogger(os.path.join(self.home, "logs"))
 
