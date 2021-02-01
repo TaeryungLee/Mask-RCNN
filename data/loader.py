@@ -2,7 +2,7 @@ from data.MSCOCO import MSCOCO
 import torch
 
 def build_dataloader(args, train=True):
-    dataset = MSCOCO(args, args.data_dir, train)
+    dataset = MSCOCO(args, args.data_dir)
 
     sampler = torch.utils.data.SequentialSampler(dataset)
 
@@ -11,7 +11,8 @@ def build_dataloader(args, train=True):
         batch_size=args.batch_size,
         sampler=sampler,
         collate_fn=trivial,
-        num_workers=args.num_workers
+        num_workers=args.num_workers,
+        drop_last=True
     )
 
     return dataloader

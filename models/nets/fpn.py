@@ -23,11 +23,11 @@ class FPN(nn.Module):
         self.out_channel = out_channels
 
         # initialize layers
-        self.C1 = bottom_up.C1
-        self.C2 = bottom_up.C2
-        self.C3 = bottom_up.C3
-        self.C4 = bottom_up.C4
-        self.C5 = bottom_up.C5
+        # self.C1 = bottom_up.C1
+        # self.C2 = bottom_up.C2
+        # self.C3 = bottom_up.C3
+        # self.C4 = bottom_up.C4
+        # self.C5 = bottom_up.C5
 
         if top_block:
             self.P6_pool = nn.MaxPool2d(kernel_size=1, stride=2)

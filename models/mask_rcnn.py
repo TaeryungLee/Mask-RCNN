@@ -6,9 +6,7 @@ from models.backbone import build_backbone
 from models.proposal_generator import build_proposal_generator
 from models.roi_heads import build_roi_heads
 import numpy as np
-from utils.visualizer import vis_tensor, vis_batch, vis_numpy, denormalize_tensor, vis_denorm_tensor_with_bbox
-from utils.pad import pad
-
+from utils.visualizer import vis_tensor, vis_batch, vis_numpy, denormalize_tensor, vis_denorm_tensor_with_bbox, vis_gt_and_prop
 
 class MaskRCNN(nn.Module):
     def __init__(
@@ -100,11 +98,21 @@ class MaskRCNN(nn.Module):
             # print(pad_img.shape, "pad")
             # print(batched_imgs.shape, "batched_imgs")
             pad_img[..., : img.shape[-2], : img.shape[-1]].copy_(img)
+        
         annotations = [x["annotations"] for x in batched_inputs]
+        
+        # print("ann before aligning in model preprocessing")
+        # print(annotations)
+        
+
         anno_tensor = align_annotation_size(annotations)
+        # print("ann after aligning")
+        # print(anno_tensor)
+        # print("image ids in preprop")
 
         image_ids = [x["image_id"] for x in batched_inputs]
         image_ids = torch.tensor(image_ids)
+        # print(image_ids)
 
 
 
@@ -117,21 +125,25 @@ class MaskRCNN(nn.Module):
 
         # vis_tensor(denormalize_tensor(batched_imgs[0]), "vis/" + str(int(image_ids[0])) + "_denorm2.jpeg")
         # print(annotations.shape)
-        assert (int(len(annotations)/2)*2 == len(annotations))
-
-        # print(annotations[:int(len(annotations)/2)])
-        # print(annotations[int(len(annotations)/2):])
-        # print(annotations[:int(len(annotations)/2)].shape)
-        # print(annotations[int(len(annotations)/2):].shape)
-        
+        # print("ann in forward")
         # print(annotations)
+        # print("image ids in forward")
+        # print(image_ids)
+
+        # print(batched_imgs.shape)
         annotations = [annotations[:int(len(annotations)/2)], annotations[int(len(annotations)/2):]]
+
+        anno1 = [x for x in annotations[0] if not (x[0] < 1 and x[1] < 1 and x[2] < 1 and x[3] < 1)]
+        anno2 = [x for x in annotations[1] if not (x[0] < 1 and x[1] < 1 and x[2] < 1 and x[3] < 1)]
+        annotations = [torch.stack(anno1), torch.stack(anno2)]
+
+        # print("whole annotations after removing 0000")
+        # print(annotations)
+
 
         # vis_denorm_tensor_with_bbox(batched_imgs[0], annotations[0], "vis/" + str(int(image_ids[0])) + "_bbox.jpeg")
         # vis_denorm_tensor_with_bbox(batched_imgs[1], annotations[1], "vis/" + str(int(image_ids[1])) + "_bbox.jpeg")
 
-        anno1 = [x for x in annotations[0] if (x[0] > 1 and x[1] > 1 and x[2] > 1 and x[3] > 1)]
-        anno2 = [x for x in annotations[1] if (x[0] > 1 and x[1] > 1 and x[2] > 1 and x[3] > 1)]
         # print("anno1 is")
         # print(anno1)
         # print("anno2 is")
@@ -139,23 +151,47 @@ class MaskRCNN(nn.Module):
 
         # gt_boxes = [[x for x in annotation if (x[0] > 1 and x[1] > 1 and x[2] > 1 and x[3] > 1)] for annotation in annotations]
         # print(gt_boxes)
+        # print(batched_imgs.shape)
         backbone_features = self.backbone(batched_imgs)
 
-        roi_proposals, rpn_losses = self.proposal_generator(backbone_features, image_sizes, annotations)
+        roi_proposals, rpn_losses, pos, neg = self.proposal_generator(backbone_features, image_sizes, annotations)
 
-        # print(image_ids[0])
-        # print(image_sizes[0])
-        # print(roi_proposals[0][:10])
-        # print(roi_proposals[0][-10:])
-
-        # print(roi_proposals[1][:10])
-        # print(roi_proposals[1][-10:])
+        # vis_gt_and_prop(batched_imgs[0], annotations[0], roi_proposals[0][:30], "bbox", "anchor", "vis/" + str(int(image_ids[0])) + "_pos_and_ann.jpeg")
+        # vis_gt_and_prop(batched_imgs[1], annotations[1], roi_proposals[1][:30], "bbox", "anchor", "vis/" + str(int(image_ids[1])) + "_pos_and_ann.jpeg")
 
 
-        # vis_denorm_tensor_with_bbox(batched_imgs[0], roi_proposals[0][:100], "anchor", "vis/" + str(int(image_ids[0])) + "_bbox.jpeg")
-        # vis_denorm_tensor_with_bbox(batched_imgs[1], roi_proposals[1][:100], "anchor", "vis/" + str(int(image_ids[1])) + "_bbox.jpeg")
 
-        return roi_proposals, rpn_losses
+
+        # RPN Debugging: 
+        # vis_gt_and_prop(batched_imgs[0], annotations[0], [], "bbox", "anchor", "vis/" + str(int(image_ids[0])) + "_only_gt.jpeg")
+        # vis_gt_and_prop(batched_imgs[1], annotations[1], [], "bbox", "anchor", "vis/" + str(int(image_ids[1])) + "_only_gt.jpeg")
+
+        # anchor_boxes, gt_boxes = self.proposal_generator(backbone_features, image_sizes, annotations)
+
+        # print("annotation of image {}".format(image_ids[0]))
+        # print(gt_boxes[0])
+
+        # print("positive labeled")
+        # print(anchor_boxes[0])
+
+        # print("annotation of image {}".format(image_ids[1]))
+        # print(gt_boxes[1])
+
+        # print("positive labeled")
+        # print(anchor_boxes[1])
+
+        # torch.set_printoptions(threshold=10000)
+        # print(anchor_boxes[0][-1000::])
+
+        # print(anchor_boxes)
+        # print(gt_boxes)
+
+        # vis_gt_and_prop(batched_imgs[0], gt_boxes[0], anchor_boxes[0], "anchor", "anchor", "vis/" + str(int(image_ids[0])) + "_pos_and_ann.jpeg")
+        # vis_gt_and_prop(batched_imgs[1], gt_boxes[1], anchor_boxes[1], "anchor", "anchor", "vis/" + str(int(image_ids[1])) + "_pos_and_ann.jpeg")
+        # vis_gt_and_prop(batched_imgs[0], [], anchor_boxes[0], "bbox", "anchor", "vis/" + str(int(image_ids[0])) + "_all_anchors.jpeg")
+        # vis_gt_and_prop(batched_imgs[1], [], anchor_boxes[1], "bbox", "anchor", "vis/" + str(int(image_ids[1])) + "_all_anchors.jpeg")
+
+        return roi_proposals, rpn_losses, pos, neg
 
 def align_annotation_size(annotations):
     max_len = max([ann.shape[0] for ann in annotations])

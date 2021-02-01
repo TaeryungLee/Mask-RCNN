@@ -1,7 +1,8 @@
 import torch
 from torch import nn
 from torch.nn import functional as F
-from ..utils import proposal_utils as ut
+from models.utils import proposal_utils as ut
+from utils.logger import colorLogger as Logger
 
 
 class RPN(nn.Module):
@@ -67,8 +68,8 @@ class RPN(nn.Module):
         pos_mask = gt_labels == 1
         neg_mask = gt_labels == 0
 
-        # num_pos_anchors = pos_mask.sum().item()
-        # num_neg_anchors = neg_mask.sum().item()
+        num_pos_anchors = pos_mask.sum().item()
+        num_neg_anchors = neg_mask.sum().item()
 
         merged_anchors = torch.cat(anchors, dim=0)
         gt_anchor_deltas = [ut.get_gt_deltas(merged_anchors, k) for k in gt_boxes]
@@ -87,6 +88,7 @@ class RPN(nn.Module):
         obj_loss = F.binary_cross_entropy_with_logits(
             torch.cat(pred_logits, dim=1)[valid_mask],
             gt_labels[valid_mask].to(torch.float32),
+            pos_weight=torch.full([valid_mask.sum().item()], 13.7, device=gt_labels.device),
             reduction='sum'
         )
         normalizer = self.batch_size_per_image * num_images
@@ -95,7 +97,27 @@ class RPN(nn.Module):
             "loss_rpn_loc": loc_loss / normalizer,
         }
         losses = {k: v * self.loss_weight.get(k, 1.0) for k, v in losses.items()}
-        return losses
+
+        pos_logit = torch.cat(pred_logits, dim=1)[pos_mask].mean()
+        neg_logit = torch.cat(pred_logits, dim=1)[neg_mask].mean()
+
+        # loss debug start
+        # logits = torch.cat(pred_logits, dim=1)
+        # logits[pos_mask] = 3
+        # logits[neg_mask] = -3
+
+        # print(logits[pos_mask])
+        # print(logits[neg_mask])
+        # print(logits[valid_mask])
+        # test_obj_loss = F.binary_cross_entropy_with_logits(
+        #     logits[valid_mask], gt_labels[valid_mask].to(torch.float32), reduction='sum'
+        # )
+        # print(test_obj_loss / normalizer)
+        # print(obj_loss / normalizer)
+
+
+        # loss debug end
+        return losses, pos_logit, neg_logit
 
     @torch.no_grad()
     def label_and_sample_anchors(self, anchors, annotations, image_sizes):
@@ -122,9 +144,9 @@ class RPN(nn.Module):
         """
         # list[list[Tensor]]
 
-        gt_boxes = [[x for x in annotation if not (x[0] == 0 and x[1] == 0 and x[2] == 0 and x[3] == 0)] for annotation in annotations]
+        gt_boxes = [[torch.tensor([x[0], x[1], x[2], x[3]], device=x.device) for x in annotation if not (x[0] == 0 and x[1] == 0 and x[2] == 0 and x[3] == 0)] for annotation in annotations]
         gt_boxes = [torch.stack([x + torch.tensor([0, 0, x[0], x[1]], device=x.device) for x in gt_box], dim=0) for gt_box in gt_boxes]
-        
+
         # original size info
         # anchor_size[0] = #feature maps
         # anchor_size[1][i] = #anchors for i'th feature maps, (Hi * Wi * 3(ratio) * 1(size))
@@ -133,10 +155,9 @@ class RPN(nn.Module):
         anchor_size = (len(anchors), (anchors[0].shape[0], anchors[1].shape[0], anchors[2].shape[0], anchors[3].shape[0], anchors[4].shape[0]))
         gt_box_size = (len(gt_boxes), (gt_boxes[0].shape[0], gt_boxes[1].shape[0]))
 
-
+        
         # Concatenate both anchors and gt_boxes into 2-d tensor (N * 4)
         merged_anchor = torch.cat(anchors, dim=0)
-        merged_gt_boxes = torch.cat(gt_boxes, dim=0)
 
         # print(anchors, gt_boxes)
         # print(anchor_size, gt_box_size)
@@ -145,10 +166,7 @@ class RPN(nn.Module):
         
         gt_labels = []
         matched_gt_boxes = []
-
         for image_size_i, gt_boxes_i in zip(image_sizes, gt_boxes):
-            # Issue: 여기 들어가는 게 merged_gt_boxes면 안될거같다.
-            # pairwise_iou = ut.get_pairwise_iou(merged_anchor, merged_gt_boxes)
 
             pairwise_iou = ut.get_pairwise_iou(merged_anchor, gt_boxes_i)
             # matcher
@@ -188,7 +206,7 @@ class RPN(nn.Module):
             gt_labels.append(gt_labels_i)
             matched_gt_boxes.append(matched_gt_boxes_i)
 
-        return gt_labels, matched_gt_boxes
+        return gt_labels, matched_gt_boxes, merged_anchor
 
     def forward(self, features, image_sizes, annotations):
         """
@@ -240,14 +258,20 @@ class RPN(nn.Module):
         # print(pred_reg_deltas[1].shape)
 
         if is_training:
-            gt_labels, gt_boxes = self.label_and_sample_anchors(anchors, annotations, image_sizes)
-            losses = self.losses(anchors, pred_logits, gt_labels, pred_reg_deltas, gt_boxes, image_sizes)
+            gt_labels, gt_boxes, merged_anchors = self.label_and_sample_anchors(anchors, annotations, image_sizes)
+
+            # debug
+            # positive_masks = [(gt_label == 1) for gt_label in gt_labels]
+            # positive_boxes = [merged_anchors[positive_mask] for positive_mask in positive_masks]
+            # return positive_boxes, gt_boxes
+
+            losses, pos_logit, neg_logit = self.losses(anchors, pred_logits, gt_labels, pred_reg_deltas, gt_boxes, image_sizes)
         else:
             losses = None
     
         proposals = ut.predict_proposals(anchors, pred_logits, pred_reg_deltas, image_sizes, is_training)
 
-        return proposals, losses
+        return proposals, losses, pos_logit, neg_logit
 
 class RPNHeads(nn.Module):
     def __init__(

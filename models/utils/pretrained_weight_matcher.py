@@ -1,7 +1,29 @@
 
 special_cases = {
     "conv1_w": "C1.C1.0.weight",
-    "conv1_b": "C1.C1.0.bias"
+    "conv1_b": "C1.C1.0.bias",
+    'proposal_generator.rpn_head.conv.weight': 'rpn_head.inter_layer.weight',
+    'proposal_generator.rpn_head.conv.bias': 'rpn_head.inter_layer.bias',
+    'proposal_generator.rpn_head.objectness_logits.weight': 'rpn_head.logits.weight',
+    'proposal_generator.rpn_head.objectness_logits.bias': 'rpn_head.logits.bias',
+    'proposal_generator.rpn_head.anchor_deltas.weight': 'rpn_head.reg_deltas.weight',
+    'proposal_generator.rpn_head.anchor_deltas.bias': 'rpn_head.reg_deltas.bias',
+    'backbone.fpn_lateral5.weight': 'P5_conv1.weight',
+    'backbone.fpn_lateral5.bias': 'P5_conv1.bias',
+    'backbone.fpn_output5.weight': 'P5_conv2.weight',
+    'backbone.fpn_output5.bias': 'P5_conv2.bias',
+    'backbone.fpn_lateral4.weight': 'P4_conv1.weight',
+    'backbone.fpn_lateral4.bias': 'P4_conv1.bias',
+    'backbone.fpn_output4.weight': 'P4_conv2.weight',
+    'backbone.fpn_output4.bias': 'P4_conv2.bias',
+    'backbone.fpn_lateral3.weight': 'P3_conv1.weight',
+    'backbone.fpn_lateral3.bias': 'P3_conv1.bias',
+    'backbone.fpn_output3.weight': 'P3_conv2.weight',
+    'backbone.fpn_output3.bias': 'P3_conv2.bias',
+    'backbone.fpn_lateral2.weight': 'P2_conv1.weight',
+    'backbone.fpn_lateral2.bias': 'P2_conv1.bias',
+    'backbone.fpn_output2.weight': 'P2_conv2.weight',
+    'backbone.fpn_output2.bias': 'P2_conv2.bias'
 }
 
 suffix = {

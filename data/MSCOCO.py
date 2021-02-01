@@ -26,7 +26,7 @@ class MSCOCO(Dataset):
 
         imgs_anns = list(zip(imgs, anns))
 
-        out_ann = ["num_keypoints", "bbox", "iscrowd"] + add_ann
+        out_ann = ["bbox"] + add_ann
         out_ann = list(set(out_ann))
 
         for (img_dict, ann_dict_list) in imgs_anns:
@@ -42,22 +42,11 @@ class MSCOCO(Dataset):
                 obj = {key: ann[key] for key in out_ann if key in ann}
                 # assert ann["category_id"] in target_class
 
-                keypts = ann.get("keypoints", None)
-                if keypts:
-                    for idx, v in enumerate(keypts):
-                        if idx % 3 != 2:
-                            keypts[idx] = v + 0.5
-                    obj["keypoints"] = keypts
                 objs.append(obj)
             
             record["annotations"] = objs
 
-            vis_keypts_in_img = sum(
-                (np.array(ann["keypoints"][2::3]) > 0).sum()
-                for ann in objs
-                if "keypoints" in ann)
-            if vis_keypts_in_img > 0:
-                dataset_dicts.append(record)
+            dataset_dicts.append(record)
         return dataset_dicts
     
     def _build_transforms(self, args, transforms):
@@ -141,7 +130,19 @@ class MSCOCO(Dataset):
         
         # Finally, I have to convert annotations to instances. (To be implemented)
         # raise NotImplementedError("Convert annotations to instances not implemented")
+        # print("dataset getitem bboxes")
+        # print(bboxes)
+        # print(dataset_dict["image_id"])
 
+        # i = 0
+        # vis = dataset_dict["image"].copy()
+        # vis[:, :, [0, 2]] = vis[:, :, [2, 0]]
+
+        # for obj in dataset_dict["annotations"]:
+        #     vis = visualizer(vis, obj, [], i)
+        #     i += 1
+        # cv2.imwrite("vis_data/{}.jpeg".format(dataset_dict["image_id"]), vis)
+        
         return dataset_dict
 
 def test():
@@ -150,7 +151,7 @@ def test():
 
     data = MSCOCO(args, "/media/thanos_hdd0/taeryunglee/detectron2/coco", train=False)
 
-    res = data.__getitem__(2133)
+    res = data.__getitem__(1)
 
     im = Image.fromarray(res["image"])
     im.save("after.jpeg")
@@ -160,7 +161,7 @@ def test():
     vis[:, :, [0, 2]] = vis[:, :, [2, 0]]
 
     for obj in res["annotations"]:
-        vis = visualizer(vis, obj["bbox"], obj["keypoints"], i)
+        vis = visualizer(vis, obj, [], i)
         i += 1
     cv2.imwrite("visuailization.jpeg", vis)
     

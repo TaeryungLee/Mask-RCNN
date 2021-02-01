@@ -31,10 +31,10 @@ def create_anchors(anchor_bases, feature_shapes, strides=[4, 8, 16, 32, 64]):
     anchors = []
 
     for grid_size, stride, anchor_base in zip(feature_shapes, strides, anchor_bases):
-        (grid_x, grid_y) = grid_size[-2:]
+        (grid_y, grid_x) = grid_size[-2:]
 
-        shifts_x = torch.arange(0, grid_x*stride, step=stride, dtype=torch.float32, device=anchor_bases[0].device)
-        shifts_y = torch.arange(0, grid_y*stride, step=stride, dtype=torch.float32, device=anchor_bases[0].device)
+        shifts_x = torch.arange(stride/2, (grid_x + 0.5)*stride, step=stride, dtype=torch.float32, device=anchor_bases[0].device)
+        shifts_y = torch.arange(stride/2, (grid_y + 0.5)*stride, step=stride, dtype=torch.float32, device=anchor_bases[0].device)
 
         # print(grid_x, grid_y)
         # print(grid_x * stride, grid_y * stride)
@@ -46,22 +46,35 @@ def create_anchors(anchor_bases, feature_shapes, strides=[4, 8, 16, 32, 64]):
         shift_x = shift_x.reshape(-1)
         shift_y = shift_y.reshape(-1)
 
-        shifts = torch.stack((shift_x, shift_y, shift_x, shift_y), dim=1)
-
+        # print(shift_x)
+        # print(shift_y)
         # print(shift_x.shape)
         # print(shift_y.shape)
+
+        shifts = torch.stack((shift_x, shift_y, shift_x, shift_y), dim=1)
+
         # print(shifts.shape)
-        # print(anchor_bases.shape)
+        # print(anchor_base.shape)
+        # print(anchor_base)
 
         anchor_stacks = []
-        for x in range(anchor_base.shape[0]):
-            anchor_stacks.append(shifts + anchor_base[x])
-        
-        anchor = torch.cat(anchor_stacks, dim=0)
+        # for x in range(anchor_base.shape[0]):
+        #     anchor_stacks.append(shifts + anchor_base[x])
+
+        spread_shifts = torch.zeros([shifts.shape[0]*3, shifts.shape[1]], device=anchor_base.device)
+        spread_shifts[0::3, :] = shifts
+        spread_shifts[1::3, :] = shifts
+        spread_shifts[2::3, :] = shifts
+
+        spread_anchor_bases = torch.cat([anchor_base] * shifts.shape[0])
+
+        anchor = spread_anchor_bases + spread_shifts
+
         # print(anchor.shape)
         # print(anchor_stacks[0][:3])
         # print(anchor_stacks[1][:3])
         # print(anchor_stacks[2][:3])
+        # print("last anchor", anchor[-3:])
         anchors.append(anchor)
 
     return anchors
@@ -77,6 +90,7 @@ def get_pairwise_iou(boxes1, boxes2):
     Returns:
         IoU intersection tensor, shape in N*M
     """
+
     area1 = compute_area(boxes1) # [N]
     area2 = compute_area(boxes2) # [M]
 
@@ -164,7 +178,7 @@ def find_match(thresholds, pairwise_matrix):
 
     # issue: 다 해결하긴 했는데, set_low_quality_matches_ -> 얘가 너~무 낮은 박스까지 포함시켜서 문제인듯함. 이거에 대한 threshold도 설정해줄 필요가 있을거같음.
     # 일반적인 코스로는 0.7 이상만 true인데, 이거도 최소한 0.5이상은 되어야하지않나. 근데 또 이걸 끄면 아예 샘플링이 안 되는것도 문제고.
-    highest_match_val_foreach_gt = torch.where(highest_match_val_foreach_gt <= 0.5, -1.0, highest_match_val_foreach_gt.double())
+    highest_match_val_foreach_gt = torch.where(highest_match_val_foreach_gt <= 0.3, -1.0, highest_match_val_foreach_gt.double())
 
     highest_matches = pairwise_matrix == highest_match_val_foreach_gt
     pred_inds_with_highest_match, _ = torch.nonzero(highest_matches, as_tuple=True)
@@ -394,11 +408,18 @@ def find_top_rpn_proposals(pred_proposals, pred_logits, image_sizes, is_training
             boxes, scores_per_img, lvl = boxes[keep], scores_per_img[keep], lvl[keep]
 
         # apply nms
-        keep = apply_nms(boxes, scores_per_img, lvl, nms_thresh)
+        # keep = apply_nms(boxes, scores_per_img, lvl, nms_thresh)
 
-        # slice topk
+        # # slice topk
+        # keep = keep[:post_nms_topk]
+
+        # results.append(boxes[keep])
+
+        # For training only RPN:
+        scores_per_img, idx = scores_per_img.sort(descending=True)
+        boxes = boxes[idx]
+        keep = apply_nms(boxes, scores_per_img, lvl, 0.99)
         keep = keep[:post_nms_topk]
-
         results.append(boxes[keep])
         # If objectness logits needed, then modify code to use scores_per_img[keep]
 
@@ -427,9 +448,46 @@ def predict_proposals(anchors, pred_logits, pred_reg_deltas, image_sizes, is_tra
         return find_top_rpn_proposals(pred_proposals, pred_logits, image_sizes, is_training)
 
 
+def find_top_match_proposals(gt_boxes, proposals, image_id):
+    """
+    Args:
+        proposals (Tensor): (1000, 4) tensor which holds proposal
+        gt_boxes (Tensor): (N, 4) tensor which holds gt boxes
+    Return:
+        match (list[Tensor]): length N list, each element tensor holds top matches for each gt boxes.
+    """
+    topn = 3
+    gt_boxes = torch.stack([x + torch.tensor([0, 0, x[0], x[1]], device=x.device) for x in gt_boxes], dim=0)
+    pairwise_matrix = get_pairwise_iou(gt_boxes, proposals)
+    sorted, indices = torch.sort(pairwise_matrix, descending=True, dim=1)
+
+    # print("")
+    # print(pairwise_matrix.shape)
+    # print(image_id)
+    # print(pairwise_matrix)
+    # print(sorted)
+    # print("")
+
+    ret = []
+    ret_prop = []
+    for i in range(len(gt_boxes)):
+        for j in range(topn):
+            ret.append(proposals[indices[i][j]])
+            ret_prop.append(pairwise_matrix[i][indices[i][j]])
+
+    # print("")
+    # print(image_id)
+    # print(gt_boxes)
+    # print(torch.stack(ret))
+    # print(torch.stack(ret_prop))
+    # print("")
+
+    return torch.stack(ret), torch.stack(ret_prop)
 
 
-
+def remove_zero_gt(gt_boxes):
+    mask = torch.sum(gt_boxes, 1) != 0
+    return gt_boxes[mask]
 
 
 def test_anchor():
@@ -440,6 +498,25 @@ def test_anchor():
     create_anchors(anchor_bases, feature_shapes)
 
 
+def test_iou():
+    a = [
+        [5,2,3],
+        [7,9,6],
+        [4,8,1]
+    ]
+    a = torch.tensor(a)
+
+    # print(a)
+
+    sorted, indices = a.sort(descending=True, dim=1)
+
+    ret = []
+    for i in range(3):
+        for j in range(1):
+            ret.append(indices[i][j])
+
+    print(ret)
+
 
 if __name__ == "__main__":
-    test_anchor()
+    test_iou()

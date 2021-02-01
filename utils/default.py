@@ -25,7 +25,7 @@ class DefaultTrainer(metaclass=ABCMeta):
         self.gpu_timer = Timer()
         self.read_timer = Timer()
 
-        self.logger = colorLogger(os.path.join(self.home, "logs"))
+        # self.logger = colorLogger(os.path.join(self.home, "logs"))
 
     @abstractmethod
     def _create_model(self, model_name):

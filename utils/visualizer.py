@@ -118,3 +118,41 @@ def vis_tensor_with_bbox(tensor_image, bboxes, box_format, out_name):
 def vis_denorm_tensor_with_bbox(tensor_image, bboxes, box_format, out_name):
     img = denormalize_tensor(tensor_image)
     vis_tensor_with_bbox(img, bboxes, box_format, out_name)
+
+def vis_gt_and_prop(tensor_image, gtboxes, propboxes, gtformat, propformat, out_name):
+    # Proposal as blue, gt as red
+    img = denormalize_tensor(tensor_image)
+
+    img = img.clone().cpu().detach()
+    img = img.permute(1, 2, 0).contiguous()
+    img = img.numpy().astype("uint8")
+    # img = Image.fromarray(img)
+    img = img.copy()
+    img[:, :, [0, 2]] = img[:, :, [2, 0]]
+    # print(type(img))
+    for bbox in propboxes:
+        if bbox[0] < 1 and bbox[1] < 1 and bbox[2] < 1 and bbox[3] < 1:
+            continue
+
+        if propformat == "bbox":
+            lt = (int(bbox[0]), int(bbox[1]))
+            rb = (int(bbox[0]) + int(bbox[2]), int(bbox[1]) + int(bbox[3]))
+        elif propformat == "anchor":
+            lt = (int(bbox[0]), int(bbox[1]))
+            rb = (int(bbox[2]), int(bbox[3]))
+
+        img = add_rectangle(img, (255, 0, 0), lt, rb)
+
+    for bbox in gtboxes:
+        if bbox[0] < 1 and bbox[1] < 1 and bbox[2] < 1 and bbox[3] < 1:
+            continue
+
+        if gtformat == "bbox":
+            lt = (int(bbox[0]), int(bbox[1]))
+            rb = (int(bbox[0]) + int(bbox[2]), int(bbox[1]) + int(bbox[3]))
+        elif gtformat == "anchor":
+            lt = (int(bbox[0]), int(bbox[1]))
+            rb = (int(bbox[2]), int(bbox[3]))
+        img = add_rectangle(img, (0, 0, 255), lt, rb)
+    
+    cv2.imwrite(out_name, img)

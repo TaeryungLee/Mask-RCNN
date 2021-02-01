@@ -16,7 +16,10 @@ from models.nets.resnet import ResNet
 from torchvision.models import resnet50
 from utils import visualizer as vis
 from PIL import Image
-from utils.visualizer import vis_denorm_tensor_with_bbox
+from utils.logger import colorLogger as Logger
+from models.utils.proposal_utils import find_top_match_proposals, remove_zero_gt
+from utils.visualizer import vis_denorm_tensor_with_bbox, vis_gt_and_prop
+from utils.dir import mkdir
 
 def parse_args():
     _parser = argparse.ArgumentParser()
@@ -25,23 +28,24 @@ def parse_args():
     _parser.add_argument('--num_gpus', type=int, default=2)
     _parser.add_argument('--gpu_ids', type=str, 
                          help="Use comma between ids")
-    _parser.add_argument('--home', type=str, default="./output/test01")
+    _parser.add_argument('--home', type=str, default="./output/test02")
     _parser.add_argument('--num_workers', type=int, default=4)
 
     _parser.add_argument('--model_name', type=str, default="ResNet-50-FPN")
-    _parser.add_argument('--max_iter', type=int, default=360000)
+    _parser.add_argument('--max_iter', type=int, default=270000)
     _parser.add_argument('--start_iter', type=int, default=0)
+    
+    _parser.add_argument('--lr', type=int, default=0.00001)
+    _parser.add_argument('--optimizer', type=str, default="sgd-default")
+    _parser.add_argument('--lr_scheduler', type=str, default="multistep", 
+                          help="multistep, multistep-warmup, cosine")
+    _parser.add_argument('--image_per_batch', type=int, default=2)
+    _parser.add_argument('--batch_size', type=int, default=4)
+    
+
     _parser.add_argument('--load', type=bool, default=False)
     _parser.add_argument('--load_name', type=str, default="")
     
-    _parser.add_argument('--optimizer', type=str, default="sgd-default")
-
-    _parser.add_argument('--lr', type=int, default=0.0001)
-    _parser.add_argument('--lr_scheduler', type=str, default="multistep", 
-                          help="multistep, multistep-warmup, cosine")
-    
-    _parser.add_argument('--image_per_batch', type=int, default=2)
-    _parser.add_argument('--batch_size', type=int, default=4)
 
     _parser.add_argument('--min_size', type=str, default='640 672 704 736 768 800')
     _parser.add_argument('--max_size', type=int, default=1333)
@@ -75,7 +79,7 @@ class Trainer(DefaultTrainer):
             start_iter=args.start_iter, max_iter=args.max_iter)
         
         self.train_loader = self._create_dataloader(args)
-                
+        # self.val_loader = self._create_val_dataloader(args)
 
     def _create_model(self, args, model_name):
         pixel_mean = args.pixel_mean.split()
@@ -102,7 +106,7 @@ class Trainer(DefaultTrainer):
 
     def _get_lr_scheduler(self, lr, lr_scheduler, start_iter, max_iter):
         if lr_scheduler == "multistep":
-            return MultiStepLR(self.optimizer, milestones=[60000*4, 80000*4], gamma=0.1)
+            return MultiStepLR(self.optimizer, milestones=[210000, 250000], gamma=0.1)
             
         elif lr_scheduler == "multistep-warmup":
             # What is used in detectron2/plain_train_net.py
@@ -119,10 +123,19 @@ class Trainer(DefaultTrainer):
     def _create_dataloader(self, args):
         return build_dataloader(args, train=True)
 
+    def _create_val_dataloader(self, args):
+        return build_dataloader(args, train=False)
+
 
     def train(self):
         start_iter = self.args.start_iter
+        _iter = start_iter
         max_iter = self.args.max_iter
+
+        mkdir(os.path.join(self.args.home, "vis"))
+
+        logger = Logger(self.args.home)
+
 
         # freeze_layer_dict = self.model.module.loaded_layers
         # freeze_layer = [freeze_layer_dict[key] for key in freeze_layer_dict.keys()]
@@ -130,47 +143,109 @@ class Trainer(DefaultTrainer):
         #     if name in freeze_layer:
         #         param.requires_grad = False
 
-        for i, data in enumerate(self.train_loader):
-            if i == max_iter:
-                break
-            
+        while _iter < max_iter:
+            for i, data in enumerate(self.train_loader):
+                if i < 2:
+                    continue
+                self.model.train()
+                self.optimizer.zero_grad()
+                batched_imgs, image_sizes, annotations, image_ids = self.model.module.preprocess(self.args, data)
 
-            self.optimizer.zero_grad()
-            batched_imgs, image_sizes, annotations, image_ids = self.model.module.preprocess(self.args, data)
-            output, loss_dict = self.model(batched_imgs, image_sizes, annotations, image_ids)
-            
-            losses = {k : v.sum() for k, v in loss_dict.items()}
-            loss = losses["loss_rpn_cls"] + losses["loss_rpn_loc"] * 10
-            # assert torch.isfinite(losses).all(), loss_dict
-            
-            loss.backward()
-            self.optimizer.step()
+                # print(annotations)
+                # print(image_ids)
 
-            self.lr_scheduler.step()
+                output, loss_dict, pos_l, neg_l = self.model(batched_imgs, image_sizes, annotations, image_ids)
 
-            if i % 100 == 0:
-                print("iter: {}, loss: {}".format(i, losses))
+
+                
+                losses = {k : v.sum() for k, v in loss_dict.items()}
+                loss = losses["loss_rpn_cls"] + losses["loss_rpn_loc"] * 10
+                # assert torch.isfinite(losses).all(), loss_dict
+                
+                loss.backward()
+                self.optimizer.step()
+                self.lr_scheduler.step()
+
+                if (i + _iter) % 100 == 0:
+                    print("iter: {}, loss_rpn_cls: {}, loss_rpn_loc: {}"
+                        .format((i + _iter),round(float(losses["loss_rpn_cls"]), 3), round(float(losses["loss_rpn_loc"]), 3)))
+                    logger.debug("iter: {}, loss_rpn_cls: {}, loss_rpn_loc: {}, pos_logit: {}, neg_logit: {}"
+                        .format((i + _iter),  round(float(losses["loss_rpn_cls"]), 3), round(float(losses["loss_rpn_loc"]), 3), 
+                        round(float(pos_l.mean()) * 100,2), 
+                        round(float(neg_l.mean()) * 100,2)))
+                
+                if (i + _iter) % 1000 == 0 and (i + _iter) != 0:
+                    self.eval((i + _iter), logger, batched_imgs, image_sizes, annotations, image_ids)
+                    l = int(len(annotations)/4)
+                    # vis_gt_and_prop(batched_imgs[0], annotations[:l], output[0][0:1000], "bbox", "anchor", 
+                    #     self.args.home + "/vis/" + str((i + _iter)) + "_" + str(int(image_ids[0])) + "_" + "_all.jpeg")
+                    # vis_gt_and_prop(batched_imgs[1], annotations[l:2*l], output[1][0:1000], "bbox", "anchor", 
+                    #     self.args.home + "/vis/" + str((i + _iter)) + "_" + str(int(image_ids[1])) + "_" + "_all.jpeg")
+                    # vis_gt_and_prop(batched_imgs[2], annotations[2*l:3*l], output[0][1000:], "bbox", "anchor", 
+                    #     self.args.home + "/vis/" + str((i + _iter)) + "_" + str(int(image_ids[2])) + "_" + "_all.jpeg")
+                    # vis_gt_and_prop(batched_imgs[3], annotations[3*l:], output[1][1000:], "bbox", "anchor", 
+                    #     self.args.home + "/vis/" + str((i + _iter)) + "_" + str(int(image_ids[3])) + "_" + "_all.jpeg")
+
+                if (i + _iter) == max_iter:
+                    break
             
-            if i % 500 == 0:
-                vis_denorm_tensor_with_bbox(batched_imgs[0], output[0][0:30],
-                    "anchor", "vis/" + str(i) + "_" + str(int(image_ids[0])) + "_" + "_bbox.jpeg")
-                vis_denorm_tensor_with_bbox(batched_imgs[1], output[1][0:30],
-                    "anchor", "vis/" + str(i) + "_" + str(int(image_ids[1])) + "_" + "_bbox.jpeg")
-                vis_denorm_tensor_with_bbox(batched_imgs[2], output[0][1000:1030],
-                    "anchor", "vis/" + str(i) + "_" + str(int(image_ids[2])) + "_" + "_bbox.jpeg")
-                vis_denorm_tensor_with_bbox(batched_imgs[3], output[1][1000:1030],
-                    "anchor", "vis/" + str(i) + "_" + str(int(image_ids[3])) + "_" + "_bbox.jpeg")
+            print("returning...")
+            _iter += i
+        print("Finished Training.")
+
+    def eval(self, iter_, logger, batched_imgs, image_sizes, annotations, image_ids):
+        # data = self.val_loader
+        self.model.eval()
+        output, loss_dict, pos_l, neg_l = self.model(batched_imgs, image_sizes, annotations, image_ids)
+        losses = {k : v.sum() for k, v in loss_dict.items()}
+
+        cnt, tot = self.visualize_proposal(batched_imgs, annotations, output, image_ids, iter_)
+
+        logger.info("<EVAL> iter: {}, loss_rpn_cls: {}, loss_rpn_loc: {}, pos_logit: {}, neg_logit: {}, {} / {} ({}%) correctly proposed"
+            .format(iter_,  round(float(losses["loss_rpn_cls"]), 3), round(float(losses["loss_rpn_loc"]), 3), 
+            round(float(pos_l.mean()) * 100,2), 
+            round(float(neg_l.mean()) * 100,2), cnt, tot, round(cnt * 100 / tot, 2)))
         
 
 
 
-            # if i % 100 == 0:
-            #     torch.cuda.empty_cache()
+    def visualize_proposal(self, batched_imgs, annotations, output, image_ids, iter_):
+        l = int(len(annotations)/4)
+        gt_boxes = [annotations[:l], annotations[l:2*l], annotations[2*l:3*l], annotations[3*l:]]
+        gt_boxes = [remove_zero_gt(x).clone().to(image_ids.device) for x in gt_boxes]
 
+        proposals = [output[0][:1000], output[1][:1000], output[0][1000:], output[1][1000:]]
+        proposals = [x.clone().to(image_ids.device) for x in proposals]
 
-        print("Finished Training.")
+        top_matches = [find_top_match_proposals(gt_box, proposal, image_id)[0] for gt_box, proposal, image_id in zip(gt_boxes, proposals, image_ids)]
+        top_match_iou = [find_top_match_proposals(gt_box, proposal, image_id)[1] for gt_box, proposal, image_id in zip(gt_boxes, proposals, image_ids)]
 
+        cnt = 0
+        tot = 0
+        for i in top_match_iou:
+            for j in i:
+                if j > 0.4:
+                    cnt += 1
+                tot += 1
 
+        vis_gt_and_prop(batched_imgs[0], gt_boxes[0], top_matches[0], "bbox", "anchor", 
+            self.args.home + "/vis/" + str(iter_) + "_" + str(int(image_ids[0])) + "_" + "_proposal.jpeg")
+        vis_gt_and_prop(batched_imgs[1], gt_boxes[1], top_matches[1], "bbox", "anchor", 
+            self.args.home + "/vis/" + str(iter_) + "_" + str(int(image_ids[1])) + "_" + "_proposal.jpeg")
+        vis_gt_and_prop(batched_imgs[2], gt_boxes[2], top_matches[2], "bbox", "anchor", 
+            self.args.home + "/vis/" + str(iter_) + "_" + str(int(image_ids[2])) + "_" + "_proposal.jpeg")
+        vis_gt_and_prop(batched_imgs[3], gt_boxes[3], top_matches[3], "bbox", "anchor", 
+            self.args.home + "/vis/" + str(iter_) + "_" + str(int(image_ids[3])) + "_" + "_proposal.jpeg")
+
+        # vis_gt_and_prop(batched_imgs[0], annotations[:l], output[0][0:1000], "bbox", "anchor", 
+        #     self.args.home + "/vis/" + str(iter_) + "_" + str(int(image_ids[0])) + "_" + "_all.jpeg")
+        # vis_gt_and_prop(batched_imgs[1], annotations[l:2*l], output[1][0:1000], "bbox", "anchor", 
+        #     self.args.home + "/vis/" + str(iter_) + "_" + str(int(image_ids[1])) + "_" + "_all.jpeg")
+        # vis_gt_and_prop(batched_imgs[2], annotations[2*l:3*l], output[0][1000:], "bbox", "anchor", 
+        #     self.args.home + "/vis/" + str(iter_) + "_" + str(int(image_ids[2])) + "_" + "_all.jpeg")
+        # vis_gt_and_prop(batched_imgs[3], annotations[3*l:], output[1][1000:], "bbox", "anchor", 
+        #     self.args.home + "/vis/" + str(iter_) + "_" + str(int(image_ids[3])) + "_" + "_all.jpeg")
+        return cnt, tot
 
 
 
@@ -182,11 +257,17 @@ class Trainer(DefaultTrainer):
             print("iteration ", i)
             
             batched_imgs, image_sizes, annotations, image_ids = self.model.module.preprocess(self.args, data)
-
             output, loss_dict = self.model(batched_imgs, image_sizes, annotations, image_ids)
 
-
-            
+            # l = int(len(annotations)/4)
+            # vis_gt_and_prop(batched_imgs[0], annotations[:l], output[0][0:30], "bbox", "anchor", 
+            #     "vis/" + str(i) + "_" + str(int(image_ids[0])) + "_" + "_bbox.jpeg")
+            # vis_gt_and_prop(batched_imgs[1], annotations[l:2*l], output[1][0:30], "bbox", "anchor", 
+            #     "vis/" + str(i) + "_" + str(int(image_ids[1])) + "_" + "_bbox.jpeg")
+            # vis_gt_and_prop(batched_imgs[2], annotations[2*l:3*l], output[0][1000:1030], "bbox", "anchor", 
+            #     "vis/" + str(i) + "_" + str(int(image_ids[2])) + "_" + "_bbox.jpeg")
+            # vis_gt_and_prop(batched_imgs[3], annotations[3*l:], output[1][1000:1030], "bbox", "anchor", 
+            #     "vis/" + str(i) + "_" + str(int(image_ids[3])) + "_" + "_bbox.jpeg")
 
             # losses = {k : v.sum() for k, v in loss_dict.items()}
             # loss = losses["loss_rpn_cls"] + losses["loss_rpn_loc"] * 10
@@ -214,9 +295,9 @@ def main():
     print(sys.argv)
     args = parse_args()
     trainer = Trainer(args)
-    # trainer.train()
+    trainer.train()
 
-    trainer.test()
+    # trainer.test()
 
 if __name__ == "__main__":
     main()

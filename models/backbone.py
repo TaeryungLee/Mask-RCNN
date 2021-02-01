@@ -7,7 +7,7 @@ from torch import nn
 import numpy as np
 from models.nets.resnet import ResNet
 from models.nets.fpn import FPN
-from models.utils.pretrained_weight_matcher import matcher
+from models.utils.pretrained_weight_matcher import matcher, special_cases
 
 def build_backbone(args):
     """
@@ -24,6 +24,7 @@ def build_backbone(args):
     else:
         raise NotImplementedError("no such model")
 
+
     if args.is_train:
         if args.load_pretrained_resnet:
             bottom_up, match_dict = load_pretrained_resnet(bottom_up, args.pretrained_resnet)
@@ -35,7 +36,47 @@ def build_backbone(args):
     # fuse_type = "sum"
 
     if args.model_name == "ResNet-50-FPN":
-        return FPN(bottom_up=bottom_up, in_features=in_features, out_channels=out_channels, top_block=True), match_dict
+        model = FPN(bottom_up=bottom_up, in_features=in_features, out_channels=out_channels, top_block=True)
+    
+    model, _ = load_fpn(model)
+    
+    return model, match_dict
+
+
+def load_fpn(model):
+    link = "https://dl.fbaipublicfiles.com/detectron2/COCO-Detection/rpn_R_50_FPN_1x/137258492/model_final_02ce48.pkl"
+    filename = "pretrained/pick.pkl"
+    if not os.path.isfile(filename):
+        r = requests.get(link)
+        open(filename, 'wb').write(r.content)
+
+    with open(filename, "rb") as f:
+        data = pickle.load(f, encoding="latin1")
+    
+    pretrained_state_dict = data["model"]
+
+    model_state_dict = model.state_dict()
+
+    mats = {}
+
+    for key in pretrained_state_dict.keys():
+        mat = matcher(key)
+        if mat is not None and mat in special_cases.keys():
+            mats[key] = mat
+        
+        else:
+            pass
+
+    dict_to_feed = {}
+
+    for key in mats.keys():
+        dict_to_feed[mats[key]] = torch.tensor(pretrained_state_dict[key])
+    
+    model_state_dict.update(dict_to_feed)
+
+    model.load_state_dict(model_state_dict)
+
+    return model, mats
 
 
 def load_pretrained_resnet(model, filename):

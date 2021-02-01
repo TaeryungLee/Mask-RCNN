@@ -4,3 +4,7 @@ dev_log.txt
 .ipynb_checkpoints
 scratch.py
 vis
+pick.pkl
+pretrained
+config
+output
