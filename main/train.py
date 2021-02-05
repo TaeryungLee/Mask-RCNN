@@ -212,7 +212,7 @@ class Trainer(DefaultTrainer):
 
         for i, data in enumerate(self.val_loader):
             if i % 20 == 0 and i != 0:
-                print(i)
+                print(i, " / 670")
             batched_imgs, image_sizes, annotations, image_ids = self.model.module.preprocess(self.args, data)
             output, loss_dict, pos_l, neg_l = self.model(batched_imgs, image_sizes, annotations, image_ids)
             losses = {k : v.sum() for k, v in loss_dict.items()}
