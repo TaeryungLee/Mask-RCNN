@@ -4,7 +4,7 @@ from torchvision.transforms import ToPILImage
 from torch.nn import functional as F
 from models.backbone import build_backbone
 from models.proposal_generator import build_proposal_generator
-from models.roi_heads import build_roi_heads
+from models.heads import build_roi_heads
 import numpy as np
 from utils.visualizer import vis_tensor, vis_batch, vis_numpy, denormalize_tensor, vis_denorm_tensor_with_bbox, vis_gt_and_prop
 
