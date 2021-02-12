@@ -1,14 +1,7 @@
 import torch
 from torch import nn
-
-from torchvision.ops import roi_align, roi_pool as tv_roi_align, tv_roi_pool
-
-if __name__ == "__main__":
-    import os.path as osp
-    import sys
-    ROOT_DIR = osp.dirname(osp.dirname(osp.dirname(osp.abspath(__file__))))
-    sys.path.insert(0, ROOT_DIR)
-
+from torchvision.ops import roi_align as tv_roi_align
+from torchvision.ops import roi_pool as tv_roi_pool
 from models.utils import proposal_utils as ut
 
 
@@ -25,7 +18,7 @@ def box_to_pooler_format(boxes):
 
     pooler_fmt_boxes = []
     for i, box in enumerate(boxes):
-        index = torch.full((box.shape[0], 1), i)
+        index = torch.full((box.shape[0], 1), i, device=boxes[0].device)
         pooler_fmt_boxes.append(torch.cat((index, box), dim=1))
     
     pooler_fmt_boxes = torch.cat(pooler_fmt_boxes).to(boxes[0].device)
@@ -53,14 +46,6 @@ def get_levels(boxes, canonical_box_size=224, canonical_level=4):
     return areas
 
 
-def roi_pool_function(input, boxes, output_size, spatial_scale):
-    pass
-
-
-def roi_align_function(input, boxes, output_size, spatial_scale):
-    pass
-
-
 class RoIPoolingLayer(nn.Module):
     def __init__(
         self, 
@@ -68,7 +53,22 @@ class RoIPoolingLayer(nn.Module):
         spatial_scale
     ):
         super().__init__()
+        self.output_size = output_size
+        self.spatial_scale = spatial_scale
+    
+    def forward(self, input, boxes):
+        """
+        Apply torchvision.roi_pool
 
+        Args:
+            input (Tensor): shape (N x C x H x W)
+            boxes (Tensor): boxes in pooling format (image_index, x1, y1, x2, y2), shape (M x 5)
+
+        Returns:
+            output (Tensor): pooled roi feature map, shape (M x C x out_size x out_size)
+        """
+        output = tv_roi_pool(input, boxes, self.output_size, self.spatial_scale)
+        return output
 
 class RoIAligningLayer(nn.Module):
     def __init__(
@@ -79,19 +79,37 @@ class RoIAligningLayer(nn.Module):
         aligned=True
     ):
         super().__init__()
+        self.output_size = output_size
+        self.spatial_scale = spatial_scale
+        self.sampling_ratio = sampling_ratio
+        self.aligned = aligned
+
+    def forward(self, input, boxes):
+        """
+        Apply torchvision.roi_align
+
+        Args:
+            input (Tensor): shape (N x C x H x W)
+            boxes (Tensor): boxes in pooling format (image_index, x1, y1, x2, y2), shape (M x 5)
+
+        Returns:
+            output (Tensor): pooled roi feature map, shape (M x C x out_size x out_size)
+        """
+        return tv_roi_align(input, boxes, (self.output_size, self.output_size), self.spatial_scale, self.sampling_ratio, self.aligned)
 
 
 class RoIPooler(nn.Module):
     def __init__(
         self,
-        output_size = 7,
-        scales = (1/4, 1/8, 1/16, 1/32),
-        method = "RoIpool"  # RoIPool or RoIAlign
+        output_size=7,
+        scales=(1/4, 1/8, 1/16, 1/32),
+        method="RoIpool"  # RoIPool or RoIAlign
     ):
         super().__init__()
         self.levels = (2, 3, 4, 5)
         self._leveler = get_levels
         self._formatter = box_to_pooler_format
+        self.out_size = output_size
 
         if method == "RoIPool":
             self.level_poolers = nn.ModuleList(RoIPoolingLayer(output_size, scale) for scale in scales)
@@ -146,206 +164,3 @@ class RoIPooler(nn.Module):
             roi_features.index_put_((level_mask, ), pooled_roi_feature_map)
         
         return roi_features
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-class RoIPooler(nn.Module):
-    def __init__(
-        self,
-        output_size = 7,
-        method = "RoIpool"  # RoIPool or RoIAlign
-    ):
-        self.out_size = output_size
-        self._leveler = get_levels
-
-    def forward(self, feature_maps, boxes):
-        """
-        Apply roi pooling or roi aligning.
-        
-        Args:
-            feature_maps (list[Tensor]): (N x C x H2 x W2, ..., N x C x H5 x W5)
-            boxes (list[Tensor]): (M1 x 4, M2 x 4), where M1 and M2 are number of proposals for each image in minibatch
-        
-        Returns:
-            tensor of shape (M1 + M2) x C x (out_size) x (out_size)
-            concatenated roi feature map over every batch images.
-        """
-        # cat proposals
-        proposals = torch.cat(boxes)
-        levels = get_levels(proposals)
-
-        level_masks = []
-        for x in (2,3,4,5):
-            level_masks.append(levels == x)
-        
-        M = sum([box.shape[0] for box in boxes])
-        C = feature_maps[0].shape[1]
-        roi_features = torch.zeros((M, C, self.out_size, self.out_size))
-        
-        for feature_map, level_mask in zip(feature_maps, level_masks):
-            # pool
-            roi_features = self.pooler(roi_features, feature_map, boxes, level_mask)
-
-        pass
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-def roi_pool(roi_features, feature_map, boxes, level_mask):
-    """
-    RoI pooling function.
-    update only boxes corresponding to true values in level_mask.
-    Args:
-        roi_features (Tensor): features to update, in shape (M x C x out_shape(7) x out_shape(7))
-        feature_map (Tensor): feature map of batched images, in shape (N x C x Hi x Wi)
-        boxes (Tensor): every proposed boxes in minibatch, in shape (M x 4)
-        level_mask (Tensor vector): true values assigned to boxes assigned to this level.
-            in shape (M)
-    """
-    # debug: check if this function only modifies allowed boxes
-    for feature in roi_features:
-        pass
-
-    return roi_features
-
-
-def roi_align():
-    pass
-
-
-if __name__ == "__main__":
-    box = [
-        [100, 100, 120, 120],
-        [100, 100, 150, 150],
-        [100, 100, 200, 200],
-        [100, 100, 300, 300],
-        [100, 100, 400, 400],
-        [100, 100, 500, 500],
-        [100, 100, 600, 600],
-        [100, 100, 700, 700],
-        [100, 100, 800, 800],
-        [100, 100, 900, 900],
-        [100, 100, 1000, 1000],
-        [100, 100, 1100, 1100],
-    ]
-
-    
-    box2 = [
-        [0, 0, 300, 300],
-        [0, 0, 400, 400],
-        [0, 0, 500, 500],
-        [0, 0, 600, 600],
-        [0, 0, 700, 700],
-    ]
-
-    box = torch.tensor(box, device=torch.device("cuda:0"))
-    box2 = torch.tensor(box2, device=torch.device("cuda:0"))
-
-    boxes = [box, box2]
-
-    proposals = torch.cat(boxes)
-    
-    levels = get_levels(proposals)
-    level_masks = []
-    for x in (2,3,4,5):
-        level_masks.append(levels == x)
-
-    feature_maps = [torch.ones((2, 3, x, x)) for x in (6,5,4,3,2)]
-    M = sum([box.shape[0] for box in boxes])
-    C = feature_maps[0].shape[1]
-    roi_features = torch.zeros((M, C, 7, 7))
-
-    for feature_map, level_mask in zip(feature_maps, level_masks):
-        print(torch.sum(roi_features[level_mask]), "should be 0")
-        roi_features = roi_pool(roi_features, feature_map, boxes, level_mask)
-        print(torch.sum(roi_features[level_mask]), "should be {}".format(feature_map.shape[2] * feature_map.shape[3]))
-    
-    print("")
-
-    for feature_map, level_mask in zip(feature_maps, level_masks):
-        print(torch.sum(roi_features[level_mask]), "should be {}".format(feature_map.shape[2] * feature_map.shape[3]))
-
-

@@ -118,80 +118,28 @@ class MaskRCNN(nn.Module):
 
         return batched_imgs, image_sizes_whole_tensor, anno_tensor, image_ids
 
-    def forward(self, batched_imgs, image_sizes, annotations, image_ids):
-        # to test batching, checking if each device gets different images
-        # print("input image ids: ", image_ids)
-        # vis_batch(batched_imgs, image_sizes, annotations, image_ids)
-
-        # vis_tensor(denormalize_tensor(batched_imgs[0]), "vis/" + str(int(image_ids[0])) + "_denorm2.jpeg")
-        # print(annotations.shape)
-        # print("ann in forward")
-        # print(annotations)
-        # print("image ids in forward")
-        # print(image_ids)
-
-        # print(batched_imgs.shape)
+    def forward(self, batched_imgs, image_sizes, annotations, image_ids, is_training=True):
         annotations = [annotations[:int(len(annotations)/2)], annotations[int(len(annotations)/2):]]
 
         anno1 = [x for x in annotations[0] if not (x[0] < 1 and x[1] < 1 and x[2] < 1 and x[3] < 1)]
         anno2 = [x for x in annotations[1] if not (x[0] < 1 and x[1] < 1 and x[2] < 1 and x[3] < 1)]
         annotations = [torch.stack(anno1), torch.stack(anno2)]
 
-        # print("whole annotations after removing 0000")
-        # print(annotations)
-
-
-        # vis_denorm_tensor_with_bbox(batched_imgs[0], annotations[0], "vis/" + str(int(image_ids[0])) + "_bbox.jpeg")
-        # vis_denorm_tensor_with_bbox(batched_imgs[1], annotations[1], "vis/" + str(int(image_ids[1])) + "_bbox.jpeg")
-
-        # print("anno1 is")
-        # print(anno1)
-        # print("anno2 is")
-        # print(anno2)
-
-        # gt_boxes = [[x for x in annotation if (x[0] > 1 and x[1] > 1 and x[2] > 1 and x[3] > 1)] for annotation in annotations]
-        # print(gt_boxes)
-        # print(batched_imgs.shape)
         backbone_features = self.backbone(batched_imgs)
+        roi_proposals, rpn_losses, _, _ = self.proposal_generator(backbone_features, image_sizes, annotations, is_training)
+        head_losses, inference, extra = self.roi_heads(batched_imgs, image_sizes, backbone_features, roi_proposals, annotations, is_training=is_training)
 
-        roi_proposals, rpn_losses, pos, neg = self.proposal_generator(backbone_features, image_sizes, annotations)
+        losses = {}
 
-        # vis_gt_and_prop(batched_imgs[0], annotations[0], roi_proposals[0][:30], "bbox", "anchor", "vis/" + str(int(image_ids[0])) + "_pos_and_ann.jpeg")
-        # vis_gt_and_prop(batched_imgs[1], annotations[1], roi_proposals[1][:30], "bbox", "anchor", "vis/" + str(int(image_ids[1])) + "_pos_and_ann.jpeg")
+        if is_training:
+            losses.update(rpn_losses)
+            losses.update(head_losses)
+        
+        return inference, losses, extra
+
+        
 
 
-
-
-        # RPN Debugging: 
-        # vis_gt_and_prop(batched_imgs[0], annotations[0], [], "bbox", "anchor", "vis/" + str(int(image_ids[0])) + "_only_gt.jpeg")
-        # vis_gt_and_prop(batched_imgs[1], annotations[1], [], "bbox", "anchor", "vis/" + str(int(image_ids[1])) + "_only_gt.jpeg")
-
-        # anchor_boxes, gt_boxes = self.proposal_generator(backbone_features, image_sizes, annotations)
-
-        # print("annotation of image {}".format(image_ids[0]))
-        # print(gt_boxes[0])
-
-        # print("positive labeled")
-        # print(anchor_boxes[0])
-
-        # print("annotation of image {}".format(image_ids[1]))
-        # print(gt_boxes[1])
-
-        # print("positive labeled")
-        # print(anchor_boxes[1])
-
-        # torch.set_printoptions(threshold=10000)
-        # print(anchor_boxes[0][-1000::])
-
-        # print(anchor_boxes)
-        # print(gt_boxes)
-
-        # vis_gt_and_prop(batched_imgs[0], gt_boxes[0], anchor_boxes[0], "anchor", "anchor", "vis/" + str(int(image_ids[0])) + "_pos_and_ann.jpeg")
-        # vis_gt_and_prop(batched_imgs[1], gt_boxes[1], anchor_boxes[1], "anchor", "anchor", "vis/" + str(int(image_ids[1])) + "_pos_and_ann.jpeg")
-        # vis_gt_and_prop(batched_imgs[0], [], anchor_boxes[0], "bbox", "anchor", "vis/" + str(int(image_ids[0])) + "_all_anchors.jpeg")
-        # vis_gt_and_prop(batched_imgs[1], [], anchor_boxes[1], "bbox", "anchor", "vis/" + str(int(image_ids[1])) + "_all_anchors.jpeg")
-
-        return roi_proposals, rpn_losses, pos, neg
 
 def align_annotation_size(annotations):
     max_len = max([ann.shape[0] for ann in annotations])

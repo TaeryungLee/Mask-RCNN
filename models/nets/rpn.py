@@ -208,13 +208,11 @@ class RPN(nn.Module):
 
         return gt_labels, matched_gt_boxes, merged_anchor
 
-    def forward(self, features, image_sizes, annotations):
+    def forward(self, features, image_sizes, annotations, is_training=True):
         """
         bbox annotations = (x1, y1, delta_x, delta_y) => x2 = x1 + delta_x, y same.
         anchor annotations = (x1, y1, x2, y2)
         """
-        # is training
-        is_training = (annotations is not None)
         # build anchors
         features = [features[key] for key in self.in_features]
         feature_shapes = [x.shape[-2:] for x in features]
@@ -268,6 +266,8 @@ class RPN(nn.Module):
             losses, pos_logit, neg_logit = self.losses(anchors, pred_logits, gt_labels, pred_reg_deltas, gt_boxes, image_sizes)
         else:
             losses = None
+            pos_logit = None
+            neg_logit = None
     
         proposals = ut.predict_proposals(anchors, pred_logits, pred_reg_deltas, image_sizes, is_training)
 

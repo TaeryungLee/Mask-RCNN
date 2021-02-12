@@ -1,5 +1,5 @@
 import torch
-from models.nets import roi_heads
+from models.nets.roi_heads import ROIHeads
 
 def build_roi_heads(args):
-    pass
+    return ROIHeads(args)

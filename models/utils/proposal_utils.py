@@ -152,7 +152,7 @@ def find_match(thresholds, pairwise_matrix):
     matched_vals, matches = pairwise_matrix.max(dim=1)
 
     # new tensor to store labels, initialized to 0
-    match_labels = matches.new_full(matches.size(), 1, dtype=torch.int8)
+    match_labels = matches.new_full(matches.size(), 0, dtype=torch.int8)
 
     # Intervals
     # [0, 0.3)   => label 0,  false positive

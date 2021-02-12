@@ -53,10 +53,10 @@ class FPN(nn.Module):
     def output_shape(self):
         """
         channels and strides for each out feature names Dict[str to Dict[str to int]]
-        ex) {"P2": {"channels": 256, "strides": 4}, 
-             "P3": {"channels": 256, "strides": 8}, ... }
+        ex) {"p2": {"channels": 256, "strides": 4}, 
+             "p3": {"channels": 256, "strides": 8}, ... }
         """
-        return {"P{}".format(i+2): 
+        return {"p{}".format(i+2): 
             {"channels": self.out_channel, "strides": self.in_strides[i]} for i in range(4)}
         
 

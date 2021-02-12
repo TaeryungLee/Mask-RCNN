@@ -20,6 +20,7 @@ from utils.logger import colorLogger as Logger
 from models.utils.proposal_utils import find_top_match_proposals, remove_zero_gt
 from utils.visualizer import vis_denorm_tensor_with_bbox, vis_gt_and_prop
 from utils.dir import mkdir
+import pickle
 from utils.timer import sec2minhrs
 
 def parse_args():
@@ -29,14 +30,14 @@ def parse_args():
     _parser.add_argument('--num_gpus', type=int, default=2)
     _parser.add_argument('--gpu_ids', type=str, 
                          help="Use comma between ids")
-    _parser.add_argument('--home', type=str, default="./output/test03")
+    _parser.add_argument('--home', type=str, default="./output/test04")
     _parser.add_argument('--num_workers', type=int, default=4)
 
     _parser.add_argument('--model_name', type=str, default="ResNet-50-FPN")
     _parser.add_argument('--max_iter', type=int, default=270000)
     _parser.add_argument('--start_iter', type=int, default=0)
     
-    _parser.add_argument('--lr', type=int, default=0.00001)
+    _parser.add_argument('--lr', type=int, default=0.005 / 4)
     _parser.add_argument('--optimizer', type=str, default="sgd-default")
     _parser.add_argument('--lr_scheduler', type=str, default="multistep", 
                           help="multistep, multistep-warmup, cosine")
@@ -44,8 +45,8 @@ def parse_args():
     _parser.add_argument('--batch_size', type=int, default=4)
     
 
-    _parser.add_argument('--load', type=bool, default=False)
-    _parser.add_argument('--load_name', type=str, default="")
+    _parser.add_argument('--load', type=bool, default=True)
+    _parser.add_argument('--load_name', type=str, default="./output/test03/best.pkl")
     
 
     _parser.add_argument('--min_size', type=str, default='640 672 704 736 768 800')
@@ -90,7 +91,12 @@ class Trainer(DefaultTrainer):
         pixel_std = [float(x) for x in pixel_std]
 
         if model_name == "ResNet-50-FPN":
-            return MaskRCNN(args, pixel_mean, pixel_std)
+            model = MaskRCNN(args, pixel_mean, pixel_std)
+        
+        # if args.load:
+        #     model = load_my_rpn(model, args.load_name)
+        
+        return model
 
 
     def _get_optimizer(self, model, args):
@@ -153,9 +159,12 @@ class Trainer(DefaultTrainer):
                 self.model.train()
                 self.optimizer.zero_grad()
                 batched_imgs, image_sizes, annotations, image_ids = self.model.module.preprocess(self.args, data)
-                output, loss_dict, pos_l, neg_l = self.model(batched_imgs, image_sizes, annotations, image_ids)
+                output, loss_dict, extra = self.model(batched_imgs, image_sizes, annotations, image_ids, is_training=True)
                 losses = {k : v.sum() for k, v in loss_dict.items()}
-                loss = losses["loss_rpn_cls"] + losses["loss_rpn_loc"] * 10
+
+                loss = losses["loss_rpn_cls"] + losses["loss_rpn_loc"] * 10 + losses["loss_cls"] + losses["loss_box_reg"] * 10
+
+                pos_score, neg_score = extra
                 
                 loss.backward()
                 self.optimizer.step()
@@ -173,12 +182,14 @@ class Trainer(DefaultTrainer):
                     logger.debug("iter: {}, avg_time: {}s/iter, ETA: {}h {}m {}s"
                         .format((i + _iter), round(avg_time / 100, 4), h, m, s))
                     
-                    logger.debug("loss_rpn_cls: {}, loss_rpn_loc: {}, pos_logit: {}, neg_logit: {}"
+                    logger.debug("loss_rpn_cls: {}, loss_rpn_loc: {}, loss_cls: {}, loss_box_reg:{}, pos_score: {}, neg_score: {}"
                         .format(round(float(losses["loss_rpn_cls"]), 3), round(float(losses["loss_rpn_loc"]), 3), 
-                        round(float(pos_l.mean()) * 100,2), 
-                        round(float(neg_l.mean()) * 100,2)))
+                        round(float(losses["loss_cls"]), 3),
+                        round(float(losses["loss_box_reg"]), 3),
+                        round(float(pos_score.mean()) * 100,2), 
+                        round(float(neg_score.mean()) * 100,2)))
                 
-                if (i + _iter) % 2000 == 0 and (i + _iter) != 0:
+                if (i + _iter) % 500 == 0 and (i + _iter) != 0:
                     print("evaluating...")
                     mAP = self.eval_rpn((i + _iter), logger)
                     if mAP > current_best_mAP:
@@ -214,7 +225,7 @@ class Trainer(DefaultTrainer):
             if i % 20 == 0 and i != 0:
                 print(i, " / 670")
             batched_imgs, image_sizes, annotations, image_ids = self.model.module.preprocess(self.args, data)
-            output, loss_dict, pos_l, neg_l = self.model(batched_imgs, image_sizes, annotations, image_ids)
+            output, loss_dict, pos_l, neg_l = self.model(batched_imgs, image_sizes, annotations, image_ids, is_training=False)
             losses = {k : v.sum() for k, v in loss_dict.items()}
             cnt, tot = self.match(batched_imgs, annotations, output, image_ids, iter_, vis=(i==save_iter))
 
@@ -296,6 +307,36 @@ class Trainer(DefaultTrainer):
 
 
 
+
+# def load_my_rpn(model, filename):
+#     with open(filename, "rb") as f:
+#         data = torch.load(f)
+    
+#     model.load_state_dict(data)
+#     exit(-1)
+#     pretrained_state_dict = data["model"]
+#     model_state_dict = model.state_dict()
+
+#     mats = {}
+
+#     for key in pretrained_state_dict.keys():
+#         mat = matcher(key)
+#         if mat is not None and mat in special_cases.keys():
+#             mats[key] = mat
+        
+#         else:
+#             pass
+
+#     dict_to_feed = {}
+
+#     for key in mats.keys():
+#         dict_to_feed[mats[key]] = torch.tensor(pretrained_state_dict[key])
+    
+#     model_state_dict.update(dict_to_feed)
+
+#     model.load_state_dict(model_state_dict)
+
+#     return model, mats
 
 
 # ====================== Not used ======================
