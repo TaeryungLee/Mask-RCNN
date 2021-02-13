@@ -407,15 +407,6 @@ def find_top_rpn_proposals(args, pred_proposals, pred_logits, image_sizes, is_tr
         if keep.sum().item() != len(boxes):
             boxes, scores_per_img, lvl = boxes[keep], scores_per_img[keep], lvl[keep]
 
-        # apply nms
-        # keep = apply_nms(boxes, scores_per_img, lvl, nms_thresh)
-
-        # # slice topk
-        # keep = keep[:post_nms_topk]
-
-        # results.append(boxes[keep])
-
-        # For training only RPN:
         scores_per_img, idx = scores_per_img.sort(descending=True)
         boxes = boxes[idx]
         keep = apply_nms(boxes, scores_per_img, lvl, nms_thresh)

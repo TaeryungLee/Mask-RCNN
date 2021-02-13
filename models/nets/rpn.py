@@ -76,8 +76,6 @@ class RPN(nn.Module):
         gt_anchor_deltas = [ut.get_gt_deltas(merged_anchors, k) for k in gt_boxes]
         gt_anchor_deltas = torch.stack(gt_anchor_deltas)
 
-
-
         loc_loss = F.smooth_l1_loss(
             torch.cat(pred_reg_deltas, dim=1)[pos_mask],
             gt_anchor_deltas[pos_mask],
@@ -102,22 +100,6 @@ class RPN(nn.Module):
         pos_logit = torch.cat(pred_logits, dim=1)[pos_mask].mean()
         neg_logit = torch.cat(pred_logits, dim=1)[neg_mask].mean()
 
-        # loss debug start
-        # logits = torch.cat(pred_logits, dim=1)
-        # logits[pos_mask] = 3
-        # logits[neg_mask] = -3
-
-        # print(logits[pos_mask])
-        # print(logits[neg_mask])
-        # print(logits[valid_mask])
-        # test_obj_loss = F.binary_cross_entropy_with_logits(
-        #     logits[valid_mask], gt_labels[valid_mask].to(torch.float32), reduction='sum'
-        # )
-        # print(test_obj_loss / normalizer)
-        # print(obj_loss / normalizer)
-
-
-        # loss debug end
         return losses, pos_logit, neg_logit
 
     @torch.no_grad()
@@ -143,27 +125,14 @@ class RPN(nn.Module):
                 i-th element holds matched ground truth box for R anchors.
                 Values are only assigned for positive labeled anchors.
         """
-        # list[list[Tensor]]
 
         gt_boxes = [[torch.tensor([x[0], x[1], x[2], x[3]], device=x.device) for x in annotation if not (x[0] == 0 and x[1] == 0 and x[2] == 0 and x[3] == 0)] for annotation in annotations]
         gt_boxes = [torch.stack([x + torch.tensor([0, 0, x[0], x[1]], device=x.device) for x in gt_box], dim=0) for gt_box in gt_boxes]
 
-        # original size info
-        # anchor_size[0] = #feature maps
-        # anchor_size[1][i] = #anchors for i'th feature maps, (Hi * Wi * 3(ratio) * 1(size))
-        # gt_box_size[0] = #images in minibatch
-        # gt_box_size[1][i] = for i'th image, # of ground truth boxes
         anchor_size = (len(anchors), (anchors[0].shape[0], anchors[1].shape[0], anchors[2].shape[0], anchors[3].shape[0], anchors[4].shape[0]))
         gt_box_size = (len(gt_boxes), (gt_boxes[0].shape[0], gt_boxes[1].shape[0]))
 
-        
-        # Concatenate both anchors and gt_boxes into 2-d tensor (N * 4)
         merged_anchor = torch.cat(anchors, dim=0)
-
-        # print(anchors, gt_boxes)
-        # print(anchor_size, gt_box_size)
-        # print(merged_anchor.shape, merged_gt_boxes.shape)
-        # print(merged_anchor, merged_gt_boxes)
         
         gt_labels = []
         matched_gt_boxes = []
@@ -185,24 +154,11 @@ class RPN(nn.Module):
                 ignore_label=-1
             )
 
-            # debug: positive anchors
-            # print("\n positive boxes \n")
-
-            # for pos_id in pos_idx:
-            #     print(pos_id)
-            #     print(merged_anchor[pos_id])
-            #     print(pairwise_iou[pos_id:pos_id + 1,:])
-
             if len(gt_boxes_i) == 0:
                 # These values won't be used anyway.
                 matched_gt_boxes_i = torch.zeros_like(merged_anchor)
             else:
                 matched_gt_boxes_i = gt_boxes_i[matched_idxs]
-
-            # print("shapes")
-            # print(matched_gt_boxes_i.shape)
-            # print(gt_labels_i.shape)
-            # print(torch.nonzero(matched_gt_boxes_i).numel())
 
             gt_labels.append(gt_labels_i)
             matched_gt_boxes.append(matched_gt_boxes_i)
@@ -222,29 +178,11 @@ class RPN(nn.Module):
         anchors = ut.create_anchors(self.anchor_bases, feature_shapes)
 
         pred_logits, pred_reg_deltas = self.rpn_head(features)
-        # print(" ")
-        # print("device", features[0].device)
-        # print("feature shapes: ", feature_shapes)
-        # print("logits 2", pred_logits[0].shape)
-        # print("logits 3", pred_logits[1].shape)
-        # print("logits 4", pred_logits[2].shape)
-        # print("logits 5", pred_logits[3].shape)
-        # print("logits 6", pred_logits[4].shape)
-
-        # print("deltas 2", pred_reg_deltas[0].shape)
-        # print("deltas 3", pred_reg_deltas[1].shape)
-        # print("deltas 4", pred_reg_deltas[2].shape)
-        # print("deltas 5", pred_reg_deltas[3].shape)
-        # print("deltas 6", pred_reg_deltas[4].shape)
-
 
         # (N, A, Hi, Wi) -> (N, Hi, Wi, A) -> (N, Hi*Wi*A)
         pred_logits = [
             score.permute(0, 2, 3, 1).flatten(1) for score in pred_logits
         ]
-
-        # print(pred_reg_deltas[0].shape)
-        # print(pred_reg_deltas[1].shape)
 
         # (N, A*B, Hi, Wi) -> (N, A, B, Hi, Wi) -> (N, Hi, Wi, A, B) -> (N, Hi*Wi*A, B)
         pred_reg_deltas = [
@@ -253,17 +191,8 @@ class RPN(nn.Module):
             .flatten(1, -2) for x in pred_reg_deltas
         ]
 
-        # print(pred_reg_deltas[0].shape)
-        # print(pred_reg_deltas[1].shape)
-
         if is_training:
             gt_labels, gt_boxes, merged_anchors = self.label_and_sample_anchors(anchors, annotations, image_sizes)
-
-            # debug
-            # positive_masks = [(gt_label == 1) for gt_label in gt_labels]
-            # positive_boxes = [merged_anchors[positive_mask] for positive_mask in positive_masks]
-            # return positive_boxes, gt_boxes
-
             losses, pos_logit, neg_logit = self.losses(anchors, pred_logits, gt_labels, pred_reg_deltas, gt_boxes, image_sizes)
         else:
             losses = None
@@ -306,11 +235,4 @@ class RPNHeads(nn.Module):
             pred_reg_deltas.append(reg_delta)
         
         return pred_logits, pred_reg_deltas
-            
-
-
-def test():
-    rpn = RPN()
-
-
-
+        

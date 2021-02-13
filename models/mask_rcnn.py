@@ -34,18 +34,10 @@ class MaskRCNN(nn.Module):
         Normalize, pad and batch the input images.
         Must store previous image sizes.
         """
-        # vis_numpy(batched_inputs[0]["image"], "vis/" + str(batched_inputs[0]["image_id"]) + "_proc1.jpeg")
+
         images = [torch.Tensor(x["image"]).to(self.device()) for x in batched_inputs]
         images = [x.permute(2, 0, 1).contiguous() for x in images]
-        # images = [torch.reshape(x, (x.shape[-1], x.shape[0], x.shape[1])) for x in images]
         images = [(x - self.pixel_mean) / self.pixel_std for x in images]
-        # vis_tensor(images[0], "vis/" + str(batched_inputs[0]["image_id"]) + "_proc2.jpeg")
-
-        # rev = denormalize_tensor(images[0])
-        # vis_tensor(rev, "vis/" + str(batched_inputs[0]["image_id"]) + "_denorm.jpeg")
-
-
-
 
         """
         class ImageList.from_tensors(tensors: List[torch.Tensor], size_divisibility=0, pad_value=0)
@@ -69,52 +61,16 @@ class MaskRCNN(nn.Module):
         batch_shape = [len(images)] + list(images[0].shape[:-2]) + list(max_size)
 
         i = 0
-        # new_batched_imgs = torch.zeros(batch_shape)
-
-        # for img, pad_img in zip(images, new_batched_imgs):
-        #     # print(img.shape)
-        #     # print(pad_img.shape)
-        #     i += 1
-        #     # pad_img[:3, :img.shape[1], :img.shape[2]] = img
-        #     pad_img[:, :img.shape[-2], :img.shape[-1]] = img
-        #     vis_tensor(denormalize_tensor(pad_img), "vis/padded_{}.jpeg".format(i))
-        
-        # for img in images:
-        #     i += 1
-        #     # padded = F.pad(input=img, pad=(0, max_size[-1] - img.shape[-1], 0, max_size[-2] - img.shape[-2]))
-        #     padded = pad(img, (10, 10))
-        #     print(batch_shape)
-        #     print(padded.shape)
-        #     print(img.shape)
-        #     vis_tensor(denormalize_tensor(padded), "vis/denorm_padded_{}.jpeg".format(i))
-        #     vis_tensor(denormalize_tensor(img), "vis/denorm_before_padded_{}.jpeg".format(i))
-        #     vis_tensor(padded, "vis/padded_{}.jpeg".format(i))
-        #     vis_tensor(img, "vis/before_padded_{}.jpeg".format(i))
-
 
         batched_imgs = images[0].new_full(batch_shape, 0)
         for img, pad_img in zip(images, batched_imgs):
-            # print(img.shape, "img")
-            # print(pad_img.shape, "pad")
-            # print(batched_imgs.shape, "batched_imgs")
             pad_img[..., : img.shape[-2], : img.shape[-1]].copy_(img)
         
         annotations = [x["annotations"] for x in batched_inputs]
-        
-        # print("ann before aligning in model preprocessing")
-        # print(annotations)
-        
-
         anno_tensor = align_annotation_size(annotations)
-        # print("ann after aligning")
-        # print(anno_tensor)
-        # print("image ids in preprop")
 
         image_ids = [x["image_id"] for x in batched_inputs]
         image_ids = torch.tensor(image_ids)
-        # print(image_ids)
-
-
 
         return batched_imgs, image_sizes_whole_tensor, anno_tensor, image_ids
 
@@ -137,9 +93,6 @@ class MaskRCNN(nn.Module):
         
         return inference, losses, extra
 
-        
-
-
 
 def align_annotation_size(annotations):
     max_len = max([ann.shape[0] for ann in annotations])
@@ -151,14 +104,5 @@ def align_annotation_size(annotations):
             continue
         add = torch.zeros((max_len - ann.shape[0], 4))
         tensors.append(torch.cat((ann, add), dim=0))
-    # print("tensors in align ftn")
-    # print(tensors)
+
     return torch.cat(tensors, dim=0)
-
-
-
-
-
-
-
-

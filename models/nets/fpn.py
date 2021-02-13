@@ -22,13 +22,6 @@ class FPN(nn.Module):
         # output channel
         self.out_channel = out_channels
 
-        # initialize layers
-        # self.C1 = bottom_up.C1
-        # self.C2 = bottom_up.C2
-        # self.C3 = bottom_up.C3
-        # self.C4 = bottom_up.C4
-        # self.C5 = bottom_up.C5
-
         if top_block:
             self.P6_pool = nn.MaxPool2d(kernel_size=1, stride=2)
         else:
@@ -63,8 +56,6 @@ class FPN(nn.Module):
     def forward(self, x):
         with torch.no_grad():
             bottom_up_features = self.bottom_up(x)
-        
-        # bottom_up_outputs = [bottom_up_features["res{}".format(i)] for i in range(5, 1, -1)]
 
         # P5
         C5 = bottom_up_features['res5']

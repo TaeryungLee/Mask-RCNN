@@ -172,21 +172,8 @@ class Trainer(DefaultTrainer):
                         # model.load_state_dict(torch.load(PATH))
                         logger.warning("Current best mAP: {}, saving model into {}".format(round(mAP, 4), os.path.join(self.args.home, "best.pkl")))
                         current_best_mAP = mAP
-
                     logger.warning("================================================================================================================")
                     logger.warning("")
-
-                
-                # if (i + _iter) % 500 == 0 and (i + _iter) != 0:
-                #     print("evaluating...")
-                #     mAP = self.eval_rpn((i + _iter), logger)
-                #     if mAP > current_best_mAP:
-                #         # save model
-                #         torch.save(self.model.state_dict(), os.path.join(self.args.home, "best.pkl"))
-                #         # to load, 
-                #         # model.load_state_dict(torch.load(PATH))
-                #         logger.warning("Current best mAP: {}, saving model into {}".format(round(mAP, 4), os.path.join(self.args.home, "best.pkl")))
-                #         current_best_mAP = mAP
 
                 if (i + _iter) == max_iter:
                     break
@@ -240,51 +227,6 @@ class Trainer(DefaultTrainer):
         return mAP
 
 
-    def eval_rpn(self, iter_, logger):
-        self.model.eval()
-        eval_stats = {
-            "loss_rpn_cls": [],
-            "loss_rpn_loc": [],
-            "pos_l": [],
-            "neg_l": [],
-            "tp": [],
-            "fp": []
-        }
-        save_iter = iter_ % 367
-        self.eval_timer.tic()
-
-        logger.warning("===================================================EVALUATION===================================================")
-
-        for i, data in enumerate(self.val_loader):
-            if i % 20 == 0 and i != 0:
-                print(i, " / 670")
-            batched_imgs, image_sizes, annotations, image_ids = self.model.module.preprocess(self.args, data)
-            output, loss_dict, pos_l, neg_l = self.model(batched_imgs, image_sizes, annotations, image_ids, is_training=False)
-            losses = {k : v.sum() for k, v in loss_dict.items()}
-            cnt, tot = self.match(batched_imgs, annotations, output, image_ids, iter_, vis=(i==save_iter))
-
-            eval_stats["loss_rpn_cls"].append(float(losses["loss_rpn_cls"]))
-            eval_stats["loss_rpn_loc"].append(float(losses["loss_rpn_loc"]))
-            eval_stats["pos_l"].append(float(pos_l.mean()))
-            eval_stats["neg_l"].append(float(neg_l.mean()))
-            eval_stats["tp"].append(cnt)
-            eval_stats["fp"].append(tot-cnt)
-        
-        loss_cls = sum(eval_stats["loss_rpn_cls"]) / len(eval_stats["loss_rpn_cls"])
-        loss_loc = sum(eval_stats["loss_rpn_loc"]) / len(eval_stats["loss_rpn_loc"])
-        pos_l = sum(eval_stats["pos_l"]) / len(eval_stats["pos_l"])
-        neg_l = sum(eval_stats["neg_l"]) / len(eval_stats["neg_l"])
-        mAP = sum(eval_stats["tp"]) / (sum(eval_stats["tp"]) + sum(eval_stats["fp"]))
-        eval_time, _ = self.eval_timer.toc()
-
-
-        logger.warning("iter: {}, eval time: {}".format(iter_, round(eval_time, 2)))
-        logger.warning("avg_loss_cls: {}, avg_loss_loc: {}, mAP: {}".format(round(loss_cls, 3), round(loss_loc, 3), round(mAP, 4)))
-        logger.warning("pos_logit: {}, neg_logit: {}".format(round(pos_l * 100, 2), round(neg_l * 100, 2)))
-        logger.warning("================================================================================================================")
-
-        return mAP
-
     def match(self, batched_imgs, annotations, output, image_ids, iter_, vis=False):
         l = int(len(annotations)/4)
         gt_boxes = [annotations[:l], annotations[l:2*l], annotations[2*l:3*l], annotations[3*l:]]
@@ -319,21 +261,6 @@ class Trainer(DefaultTrainer):
         return cnt, tot
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 def box_to_eval_form(box):
     """
     input box [x1, y1, x2, y2]
@@ -341,10 +268,6 @@ def box_to_eval_form(box):
     """
     box = [round(x, 1) for x in box]
     return [box[0], box[1], box[2]-box[0], box[3]-box[1]]
-
-
-
-
 
 
 def parse_args():
@@ -425,98 +348,10 @@ def load_my_rpn(model, filename):
 
     return model
 
+
 def rename_layer(name):
     if name.startswith("module."):
         return name[7:]
-
-# ====================== Not used ======================
-
-    def eval(self, iter_, logger, batched_imgs, image_sizes, annotations, image_ids):
-        # data = self.val_loader
-        self.model.eval()
-        output, loss_dict, pos_l, neg_l = self.model(batched_imgs, image_sizes, annotations, image_ids)
-        losses = {k : v.sum() for k, v in loss_dict.items()}
-
-        cnt, tot = self.visualize_proposal(batched_imgs, annotations, output, image_ids, iter_)
-
-        logger.info("<EVAL> iter: {}, loss_rpn_cls: {}, loss_rpn_loc: {}, pos_logit: {}, neg_logit: {}, {} / {} ({}%) correctly proposed"
-            .format(iter_,  round(float(losses["loss_rpn_cls"]), 3), round(float(losses["loss_rpn_loc"]), 3), 
-            round(float(pos_l.mean()) * 100,2), 
-            round(float(neg_l.mean()) * 100,2), cnt, tot, round(cnt * 100 / tot, 2)))
-
-
-    def visualize_proposal(self, batched_imgs, annotations, output, image_ids, iter_):
-        l = int(len(annotations)/4)
-        gt_boxes = [annotations[:l], annotations[l:2*l], annotations[2*l:3*l], annotations[3*l:]]
-        gt_boxes = [remove_zero_gt(x).clone().to(image_ids.device) for x in gt_boxes]
-
-        proposals = [output[0][:1000], output[1][:1000], output[0][1000:], output[1][1000:]]
-        proposals = [x.clone().to(image_ids.device) for x in proposals]
-
-        top_matches = [find_top_match_proposals(gt_box, proposal, image_id)[0] for gt_box, proposal, image_id in zip(gt_boxes, proposals, image_ids)]
-        top_match_iou = [find_top_match_proposals(gt_box, proposal, image_id)[1] for gt_box, proposal, image_id in zip(gt_boxes, proposals, image_ids)]
-
-        cnt = 0
-        tot = 0
-        for i in top_match_iou:
-            for j in i:
-                if j > 0.4:
-                    cnt += 1
-                tot += 1
-
-        vis_gt_and_prop(batched_imgs[0], gt_boxes[0], top_matches[0], "bbox", "anchor", 
-            self.args.home + "/vis/" + str(iter_) + "_" + str(int(image_ids[0])) + "_" + "_proposal.jpeg")
-        vis_gt_and_prop(batched_imgs[1], gt_boxes[1], top_matches[1], "bbox", "anchor", 
-            self.args.home + "/vis/" + str(iter_) + "_" + str(int(image_ids[1])) + "_" + "_proposal.jpeg")
-        vis_gt_and_prop(batched_imgs[2], gt_boxes[2], top_matches[2], "bbox", "anchor", 
-            self.args.home + "/vis/" + str(iter_) + "_" + str(int(image_ids[2])) + "_" + "_proposal.jpeg")
-        vis_gt_and_prop(batched_imgs[3], gt_boxes[3], top_matches[3], "bbox", "anchor", 
-            self.args.home + "/vis/" + str(iter_) + "_" + str(int(image_ids[3])) + "_" + "_proposal.jpeg")
-
-        # vis_gt_and_prop(batched_imgs[0], annotations[:l], output[0][0:1000], "bbox", "anchor", 
-        #     self.args.home + "/vis/" + str(iter_) + "_" + str(int(image_ids[0])) + "_" + "_all.jpeg")
-        # vis_gt_and_prop(batched_imgs[1], annotations[l:2*l], output[1][0:1000], "bbox", "anchor", 
-        #     self.args.home + "/vis/" + str(iter_) + "_" + str(int(image_ids[1])) + "_" + "_all.jpeg")
-        # vis_gt_and_prop(batched_imgs[2], annotations[2*l:3*l], output[0][1000:], "bbox", "anchor", 
-        #     self.args.home + "/vis/" + str(iter_) + "_" + str(int(image_ids[2])) + "_" + "_all.jpeg")
-        # vis_gt_and_prop(batched_imgs[3], annotations[3*l:], output[1][1000:], "bbox", "anchor", 
-        #     self.args.home + "/vis/" + str(iter_) + "_" + str(int(image_ids[3])) + "_" + "_all.jpeg")
-        return cnt, tot
-
-
-
-    def test(self):
-        for i, data in enumerate(self.train_loader):
-            if i == 1:
-                break
-            
-            print("iteration ", i)
-            
-            batched_imgs, image_sizes, annotations, image_ids = self.model.module.preprocess(self.args, data)
-            output, loss_dict = self.model(batched_imgs, image_sizes, annotations, image_ids)
-
-            # l = int(len(annotations)/4)
-            # vis_gt_and_prop(batched_imgs[0], annotations[:l], output[0][0:30], "bbox", "anchor", 
-            #     "vis/" + str(i) + "_" + str(int(image_ids[0])) + "_" + "_bbox.jpeg")
-            # vis_gt_and_prop(batched_imgs[1], annotations[l:2*l], output[1][0:30], "bbox", "anchor", 
-            #     "vis/" + str(i) + "_" + str(int(image_ids[1])) + "_" + "_bbox.jpeg")
-            # vis_gt_and_prop(batched_imgs[2], annotations[2*l:3*l], output[0][1000:1030], "bbox", "anchor", 
-            #     "vis/" + str(i) + "_" + str(int(image_ids[2])) + "_" + "_bbox.jpeg")
-            # vis_gt_and_prop(batched_imgs[3], annotations[3*l:], output[1][1000:1030], "bbox", "anchor", 
-            #     "vis/" + str(i) + "_" + str(int(image_ids[3])) + "_" + "_bbox.jpeg")
-
-            # losses = {k : v.sum() for k, v in loss_dict.items()}
-            # loss = losses["loss_rpn_cls"] + losses["loss_rpn_loc"] * 10
-
-
-            # vis_denorm_tensor_with_bbox(batched_imgs[0], output[0][0:30],
-            #     "anchor", "vis/" + str(i) + "_" + str(int(image_ids[0])) + "_" + "_bbox.jpeg")
-            # vis_denorm_tensor_with_bbox(batched_imgs[1], output[1][0:30],
-            #     "anchor", "vis/" + str(i) + "_" + str(int(image_ids[1])) + "_" + "_bbox.jpeg")
-            # vis_denorm_tensor_with_bbox(batched_imgs[2], output[0][1000:1030],
-            #     "anchor", "vis/" + str(i) + "_" + str(int(image_ids[2])) + "_" + "_bbox.jpeg")
-            # vis_denorm_tensor_with_bbox(batched_imgs[3], output[1][1000:1030],
-            #     "anchor", "vis/" + str(i) + "_" + str(int(image_ids[3])) + "_" + "_bbox.jpeg")
 
 
 def main():
@@ -524,8 +359,6 @@ def main():
     args = parse_args()
     trainer = Trainer(args)
     trainer.train()
-
-    # trainer.test()
 
 if __name__ == "__main__":
     main()

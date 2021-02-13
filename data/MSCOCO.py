@@ -107,15 +107,6 @@ class MSCOCO(Dataset):
         img = imutil.load_image(dataset_dict["file_name"])
         img = imutil.PIL_to_numpy(img)
 
-        # Test visualization code
-        # vis = img.copy()
-        # vis[:, :, [0, 2]] = vis[:, :, [2, 0]]
-        # i = 0
-        # for obj in dataset_dict["annotations"]:
-        #     vis = visualizer(vis, obj["bbox"], obj["keypoints"], i)
-        #     i += 1
-        # cv2.imwrite("visuailization_pre.jpeg", vis)
-
         assert imutil.check_image_size(img, dataset_dict["height"], dataset_dict["width"]), "image size of {} does not match!".format(dataset_dict["file_name"])
 
         img_shape = imutil.get_image_size(img) # H * W
@@ -137,21 +128,6 @@ class MSCOCO(Dataset):
             "annotations": torch.tensor(bboxes)
         }
         
-        # Finally, I have to convert annotations to instances. (To be implemented)
-        # raise NotImplementedError("Convert annotations to instances not implemented")
-        # print("dataset getitem bboxes")
-        # print(bboxes)
-        # print(dataset_dict["image_id"])
-
-        # i = 0
-        # vis = dataset_dict["image"].copy()
-        # vis[:, :, [0, 2]] = vis[:, :, [2, 0]]
-
-        # for obj in dataset_dict["annotations"]:
-        #     vis = visualizer(vis, obj, [], i)
-        #     i += 1
-        # cv2.imwrite("vis_data/{}.jpeg".format(dataset_dict["image_id"]), vis)
-        
         return dataset_dict
 
 
@@ -170,9 +146,6 @@ class COCO_custom_evaluator():
         self.coco_gt = COCO(self._ann_path)
         
         self.img_ids = None
-
-        # # to coco dict 참고해서 변환함수 추가
-        # self.coco_res = None
     
     def evaluate(self, list_dict):
         # dump
@@ -186,12 +159,6 @@ class COCO_custom_evaluator():
             img_ids = [x["image_id"] for x in list_dict]
             img_ids = sorted(list(set(img_ids)))
             self.img_ids = img_ids
-
-        # cocoEval = COCOeval(cocoGt,cocoDt,annType)
-        # cocoEval.params.imgIds  = imgIds
-        # cocoEval.evaluate()
-        # cocoEval.accumulate()
-        # cocoEval.summarize()
 
         coco_eval = COCOeval(self.coco_gt, coco_dt, self._ann_type)
         coco_eval.params.catIds = [1]
@@ -219,18 +186,3 @@ class COCO_custom_evaluator():
         대표 ap, ar: 0, 6
         """
         return coco_eval.stats, coco_eval.strings
-
-
-
-
-
-def convert_result_to_coco_format():
-    pass
-
-
-
-
-
-
-
-    
