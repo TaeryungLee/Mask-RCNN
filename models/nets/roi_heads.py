@@ -19,6 +19,7 @@ class ROIHeads(nn.Module):
     ):
         super().__init__()
 
+        self.args = args
         self.in_features = in_features
         self.in_channels = in_channels
         self.pooler_resolution = pooler_resolution
@@ -86,7 +87,12 @@ class ROIHeads(nn.Module):
             del pairwise_matrix
 
             # sample
-            sampled_idxs, gt_classes_per_image = roi_ut.roi_subsample_labels(matched_gt_box_idxs, matched_labels, batch_size_per_image=256, positive_fraction=0.25)
+            sampled_idxs, gt_classes_per_image = roi_ut.roi_subsample_labels(
+                matched_gt_box_idxs, 
+                matched_labels, 
+                batch_size_per_image=self.args.roi_batch_size, 
+                positive_fraction=0.25
+            )
             # append sampled training data
 
             sampled_proposal = proposals_per_image[sampled_idxs]
@@ -136,13 +142,16 @@ class ROIHeads(nn.Module):
         loss_box_reg = loss_box_reg / gt_labels.numel()
 
         # calculate classification loss
-        loss_cls = F.cross_entropy(cls_score, gt_labels, reduction="mean")
+        loss_cls = F.cross_entropy(cls_score, gt_labels, reduction="mean", weight=torch.Tensor((1, self.args.roi_pos_weight)).to(device=proposal_boxes.device))
 
         # extra stats
         softmax_scores = F.softmax(cls_score, dim=1)
 
-        avg_pos_scores = softmax_scores[pos_mask][:, 1:].mean()
-        avg_neg_scores = softmax_scores[neg_mask][:, :1].mean()
+        avg_pos_scores = softmax_scores[pos_mask][:, 1:]
+        avg_neg_scores = softmax_scores[neg_mask][:, :1]
+
+        avg_pos_scores = avg_pos_scores.mean()
+        avg_neg_scores = avg_neg_scores.mean()
 
         return {"loss_cls": loss_cls, "loss_box_reg": loss_box_reg}, avg_pos_scores, avg_neg_scores
 
@@ -161,9 +170,9 @@ class ROIHeads(nn.Module):
         """
 
         # hyperparameters
-        test_score_thresh = 0.3
-        test_nms_thresh = 0.5
-        test_topk_per_image = 100
+        test_score_thresh = self.args.roi_test_score_thresh
+        test_nms_thresh = self.args.roi_nms_thresh
+        test_topk_per_image = self.args.roi_nms_topk_post
         
         # split into each images
         num_prop_per_image = [p.shape[0] for p in proposal_boxes]
@@ -174,6 +183,7 @@ class ROIHeads(nn.Module):
         ret_boxes = []
         ret_scores = []
         ret_inds = []
+        num_inferences = []
 
         for image_size, cls_score, bbox_pred, proposal_box in zip(image_sizes, cls_scores, bbox_preds, proposal_boxes):
             # predict_boxes using bbox_pred
@@ -192,21 +202,29 @@ class ROIHeads(nn.Module):
 
             #clip boxes into image shape
             boxes = prop_ut.clip(boxes, image_size)
-            boxes = boxes.tensor.view(-1, num_bbox_reg_classes, 4)  # R x C x 4
+            boxes = boxes.view(-1, num_bbox_reg_classes, 4)  # R x C x 4
             filter_mask = scores > test_score_thresh  # R x K
             filter_inds = filter_mask.nonzero()
             boxes = boxes[filter_inds[:, 0], 0]
             scores = scores[filter_mask]
 
-            keep = prop_ut.batched_nms(boxes, scores, filter_inds[:, 1], test_nms_thresh)
+            keep = prop_ut.apply_nms(boxes, scores, filter_inds[:, 1], test_nms_thresh)
             keep = keep[:test_topk_per_image]
             boxes, scores, filter_inds = boxes[keep], scores[keep], filter_inds[keep]
 
             ret_boxes.append(boxes)
             ret_scores.append(scores)
             ret_inds.append(filter_inds[:, 0])
+
+            num_inference = keep.shape[0]
+            num_inferences.append(num_inference)
         
-        return (ret_boxes, ret_scores, ret_inds)
+        ret_boxes = torch.cat(ret_boxes)
+        ret_scores = torch.cat(ret_scores)
+        ret_inds = torch.cat(ret_inds)
+        num_inferences = torch.Tensor(num_inferences).to(bbox_pred.device, dtype=torch.int)
+        
+        return (ret_boxes, ret_scores, ret_inds, num_inferences)
 
 
     def forward(self, batched_imgs, image_sizes, feature_maps, proposals, annotations, is_training=True):

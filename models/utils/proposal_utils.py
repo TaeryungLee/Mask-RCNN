@@ -329,7 +329,7 @@ def apply_nms(boxes, scores_per_img, lvl, nms_thresh):
     return box_ops.batched_nms(boxes.float(), scores_per_img, lvl, nms_thresh)
 
 
-def find_top_rpn_proposals(pred_proposals, pred_logits, image_sizes, is_training):
+def find_top_rpn_proposals(args, pred_proposals, pred_logits, image_sizes, is_training):
     """
     For each feature map, select the 'pre_nms_topk' highest scoring proposals,
     apply NMS, and clip proposals. Return the 'post_nms_topk'
@@ -353,9 +353,9 @@ def find_top_rpn_proposals(pred_proposals, pred_logits, image_sizes, is_training
     device = pred_proposals[0].device
 
     # Hyperparameters
-    nms_thresh = 0.7
-    pre_nms_topk = 2000 if is_training else 1000
-    post_nms_topk = 1000
+    nms_thresh = args.rpn_nms_thresh
+    pre_nms_topk = args.rpn_nms_topk_train if is_training else args.rpn_nms_topk_test
+    post_nms_topk = args.rpn_nms_topk_post
 
     # Select 'pre_nms_topk' highest scoring proposals from each feature map (level)
     topk_scores = []
@@ -426,7 +426,7 @@ def find_top_rpn_proposals(pred_proposals, pred_logits, image_sizes, is_training
     return results
     
 
-def predict_proposals(anchors, pred_logits, pred_reg_deltas, image_sizes, is_training):
+def predict_proposals(args, anchors, pred_logits, pred_reg_deltas, image_sizes, is_training):
     """
     Decode all the predicted box regression deltas to proposals. Find the top proposals
     by applying NMS and removing boxes that are too small.
@@ -445,7 +445,7 @@ def predict_proposals(anchors, pred_logits, pred_reg_deltas, image_sizes, is_tra
         pred_proposals = [apply_deltas(anchor, pred_reg_delta) for (anchor, pred_reg_delta) in zip(anchors, pred_reg_deltas)]
         # Todo: find top 1000, NMS
         
-        return find_top_rpn_proposals(pred_proposals, pred_logits, image_sizes, is_training)
+        return find_top_rpn_proposals(args, pred_proposals, pred_logits, image_sizes, is_training)
 
 
 def find_top_match_proposals(gt_boxes, proposals, image_id):

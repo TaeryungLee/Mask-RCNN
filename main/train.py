@@ -10,6 +10,7 @@ from torch import nn
 import numpy as np
 import argparse
 from data.loader import build_dataloader
+from data.MSCOCO import COCO_custom_evaluator
 from utils.default import DefaultTrainer
 from models.mask_rcnn import MaskRCNN
 from models.nets.resnet import ResNet
@@ -23,47 +24,11 @@ from utils.dir import mkdir
 import pickle
 from utils.timer import sec2minhrs
 
-def parse_args():
-    _parser = argparse.ArgumentParser()
-    _parser.add_argument('--is_train', type=bool, default=True)
-    
-    _parser.add_argument('--num_gpus', type=int, default=2)
-    _parser.add_argument('--gpu_ids', type=str, 
-                         help="Use comma between ids")
-    _parser.add_argument('--home', type=str, default="./output/test04")
-    _parser.add_argument('--num_workers', type=int, default=4)
-
-    _parser.add_argument('--model_name', type=str, default="ResNet-50-FPN")
-    _parser.add_argument('--max_iter', type=int, default=270000)
-    _parser.add_argument('--start_iter', type=int, default=0)
-    
-    _parser.add_argument('--lr', type=int, default=0.005 / 4)
-    _parser.add_argument('--optimizer', type=str, default="sgd-default")
-    _parser.add_argument('--lr_scheduler', type=str, default="multistep", 
-                          help="multistep, multistep-warmup, cosine")
-    _parser.add_argument('--image_per_batch', type=int, default=2)
-    _parser.add_argument('--batch_size', type=int, default=4)
-    
-
-    _parser.add_argument('--load', type=bool, default=True)
-    _parser.add_argument('--load_name', type=str, default="./output/test03/best.pkl")
-    
-
-    _parser.add_argument('--min_size', type=str, default='640 672 704 736 768 800')
-    _parser.add_argument('--max_size', type=int, default=1333)
-
-    _parser.add_argument('--data_dir', type=str, 
-                         default="/media/thanos_hdd0/taeryunglee/detectron2/coco")
-
-    _parser.add_argument('--pixel_mean', type=str, default='103.53 116.28 123.675')
-    _parser.add_argument('--pixel_std', type=str, default='1.0 1.0 1.0')
-    _parser.add_argument('--fpn_out_chan', type=int, default=256)
-
-    _parser.add_argument('--load_pretrained_resnet', type=bool, default=True)
-    _parser.add_argument('--pretrained_resnet', type=str, default="pretrained/R-50.pkl")
-    
-    args = _parser.parse_args()
-    return args
+# Hyperparameters
+hyperparams = ['max_iter', 'lr_steps',  'lr', 'rpn_pos_weight', 'roi_pos_weight',
+    'rpn_nms_thresh',  'rpn_nms_topk_train',  'rpn_nms_topk_test', 'rpn_nms_topk_post', 'rpn_batch_size',
+    'roi_batch_size', 'roi_test_score_thresh', 'roi_nms_thresh', 'roi_nms_topk_post'
+]
 
 class Trainer(DefaultTrainer):
     def __init__(self, args):
@@ -83,6 +48,8 @@ class Trainer(DefaultTrainer):
         self.train_loader = self._create_dataloader(args)
         self.val_loader = self._create_val_dataloader(args)
 
+        self.evaluator = COCO_custom_evaluator(args.data_dir, args.home)
+
 
     def _create_model(self, args, model_name):
         pixel_mean = args.pixel_mean.split()
@@ -93,8 +60,8 @@ class Trainer(DefaultTrainer):
         if model_name == "ResNet-50-FPN":
             model = MaskRCNN(args, pixel_mean, pixel_std)
         
-        # if args.load:
-        #     model = load_my_rpn(model, args.load_name)
+        if args.load:
+            model = load_my_rpn(model, args.load_name)
         
         return model
 
@@ -114,7 +81,7 @@ class Trainer(DefaultTrainer):
 
     def _get_lr_scheduler(self, lr, lr_scheduler, start_iter, max_iter):
         if lr_scheduler == "multistep":
-            return MultiStepLR(self.optimizer, milestones=[210000, 250000], gamma=0.1)
+            return MultiStepLR(self.optimizer, milestones=self.args.lr_steps, gamma=0.1)
             
         elif lr_scheduler == "multistep-warmup":
             # What is used in detectron2/plain_train_net.py
@@ -145,14 +112,18 @@ class Trainer(DefaultTrainer):
         self.train_timer.tic()
 
         logger = Logger(self.args.home)
-
-
-        # freeze_layer_dict = self.model.module.loaded_layers
-        # freeze_layer = [freeze_layer_dict[key] for key in freeze_layer_dict.keys()]
-        # for name, param in self.model.module.backbone.bottom_up.named_parameters():
-        #     if name in freeze_layer:
-        #         param.requires_grad = False
         current_best_mAP = -1
+
+        logger.info("===================================================Training start===================================================")
+        # args printing here
+        logger.info("Using {} training data, {} evaluation data".format(len(self.train_loader.dataset), len(self.val_loader.dataset)))
+        logger.debug("All settings used:")
+
+        for k in hyperparams:
+            logger.debug("{}: {}".format(k, vars(self.args)[k]))
+
+        logger.info("====================================================================================================================")
+        logger.info("")
 
         while _iter < max_iter:
             for i, data in enumerate(self.train_loader):
@@ -162,7 +133,7 @@ class Trainer(DefaultTrainer):
                 output, loss_dict, extra = self.model(batched_imgs, image_sizes, annotations, image_ids, is_training=True)
                 losses = {k : v.sum() for k, v in loss_dict.items()}
 
-                loss = losses["loss_rpn_cls"] + losses["loss_rpn_loc"] * 10 + losses["loss_cls"] + losses["loss_box_reg"] * 10
+                loss = losses["loss_rpn_cls"] + losses["loss_rpn_loc"] * 10 + losses["loss_cls"] + losses["loss_box_reg"] * 5
 
                 pos_score, neg_score = extra
                 
@@ -170,28 +141,30 @@ class Trainer(DefaultTrainer):
                 self.optimizer.step()
                 self.lr_scheduler.step()
 
+
                 if (i + _iter) % 100 == 0:
                     total_time, avg_time = self.train_timer.toc()
                     ETA = (avg_time * self.args.max_iter) / 100
                     ETA = ETA - total_time
 
                     h, m, s = sec2minhrs(ETA)
-                    print("iter: {}, avg_time: {}s/iter, ETA: {}h {}m {}s, loss_rpn_cls: {}, loss_rpn_loc: {}"
-                        .format((i + _iter), round(avg_time / 100, 4), h, m, s, round(float(losses["loss_rpn_cls"]), 3), round(float(losses["loss_rpn_loc"]), 3)))
+                    h2, m2, s2 = sec2minhrs(total_time)
+                    print("iter: {}, avg_time: {} s/iter, elapsed_time: {} h {} m {} s, ETA: {} h {} m {} s"
+                        .format((i + _iter), round(avg_time / 100, 4), h2, m2, s2, h, m, s))
                     
-                    logger.debug("iter: {}, avg_time: {}s/iter, ETA: {}h {}m {}s"
-                        .format((i + _iter), round(avg_time / 100, 4), h, m, s))
+                    logger.debug("iter: {}, avg_time: {} s/iter, elapsed_time: {}h {}m {}s, ETA: {}h {}m {}s"
+                        .format((i + _iter), round(avg_time / 100, 4), h2, m2, s2, h, m, s))
                     
-                    logger.debug("loss_rpn_cls: {}, loss_rpn_loc: {}, loss_cls: {}, loss_box_reg:{}, pos_score: {}, neg_score: {}"
+                    logger.debug("loss_rpn_cls: {}, loss_rpn_loc: {}, loss_cls: {}, loss_box_reg: {}, pos_score: {}, neg_score: {}"
                         .format(round(float(losses["loss_rpn_cls"]), 3), round(float(losses["loss_rpn_loc"]), 3), 
                         round(float(losses["loss_cls"]), 3),
                         round(float(losses["loss_box_reg"]), 3),
                         round(float(pos_score.mean()) * 100,2), 
                         round(float(neg_score.mean()) * 100,2)))
                 
-                if (i + _iter) % 500 == 0 and (i + _iter) != 0:
+                if (i + _iter) % 2000 == 0 and (i + _iter) != 0:
                     print("evaluating...")
-                    mAP = self.eval_rpn((i + _iter), logger)
+                    mAP = self.eval((i + _iter), logger)
                     if mAP > current_best_mAP:
                         # save model
                         torch.save(self.model.state_dict(), os.path.join(self.args.home, "best.pkl"))
@@ -200,14 +173,73 @@ class Trainer(DefaultTrainer):
                         logger.warning("Current best mAP: {}, saving model into {}".format(round(mAP, 4), os.path.join(self.args.home, "best.pkl")))
                         current_best_mAP = mAP
 
+                    logger.warning("================================================================================================================")
+                    logger.warning("")
+
+                
+                # if (i + _iter) % 500 == 0 and (i + _iter) != 0:
+                #     print("evaluating...")
+                #     mAP = self.eval_rpn((i + _iter), logger)
+                #     if mAP > current_best_mAP:
+                #         # save model
+                #         torch.save(self.model.state_dict(), os.path.join(self.args.home, "best.pkl"))
+                #         # to load, 
+                #         # model.load_state_dict(torch.load(PATH))
+                #         logger.warning("Current best mAP: {}, saving model into {}".format(round(mAP, 4), os.path.join(self.args.home, "best.pkl")))
+                #         current_best_mAP = mAP
+
                 if (i + _iter) == max_iter:
                     break
             
-            print("returning...")
+            print("epoch done, returning...")
             _iter += i
         print("Finished Training.")
 
-    
+
+    def eval(self, iter_, logger):
+        logger.warning("")
+        logger.warning("===================================================EVALUATION===================================================")
+        self.model.eval()
+        self.eval_timer.tic()
+
+        result_boxes = []
+        for i, data in enumerate(self.val_loader):
+            if i % 20 == 0 and i != 0:
+                print(i, " / 670")
+            batched_imgs, image_sizes, annotations, image_ids = self.model.module.preprocess(self.args, data)
+            with torch.no_grad():
+                output, _, _ = self.model(batched_imgs, image_sizes, annotations, image_ids, is_training=False)
+            ret_boxes, ret_scores, _, num_inferences = output
+
+            num_inferences = num_inferences.tolist()
+
+            ret_boxes = ret_boxes.split(num_inferences)
+            ret_scores = ret_scores.split(num_inferences)
+
+            for image_id, boxes_per_image, scores_per_image in zip(image_ids, ret_boxes, ret_scores):
+                for box, score in zip(boxes_per_image.tolist(), scores_per_image.tolist()):
+                    # box to x, y, width, height form
+                    bbox = {
+                        "image_id": int(image_id),
+                        "category_id": 1,
+                        "bbox": box_to_eval_form(box),
+                        "score": score
+                    }
+                    result_boxes.append(bbox)
+        
+        eval_time, _ = self.eval_timer.toc()
+        logger.warning("iter: {}, eval time: {} s".format(iter_, round(eval_time, 2)))
+
+        stats, strings = self.evaluator.evaluate(result_boxes)
+        mAP, mAR = stats[0], stats[6]
+
+        for string in strings:
+            logger.warning(string)
+
+        # If needed, visualize.
+        return mAP
+
+
     def eval_rpn(self, iter_, logger):
         self.model.eval()
         eval_stats = {
@@ -220,6 +252,8 @@ class Trainer(DefaultTrainer):
         }
         save_iter = iter_ % 367
         self.eval_timer.tic()
+
+        logger.warning("===================================================EVALUATION===================================================")
 
         for i, data in enumerate(self.val_loader):
             if i % 20 == 0 and i != 0:
@@ -243,7 +277,7 @@ class Trainer(DefaultTrainer):
         mAP = sum(eval_stats["tp"]) / (sum(eval_stats["tp"]) + sum(eval_stats["fp"]))
         eval_time, _ = self.eval_timer.toc()
 
-        logger.warning("===================================================EVALUATION===================================================")
+
         logger.warning("iter: {}, eval time: {}".format(iter_, round(eval_time, 2)))
         logger.warning("avg_loss_cls: {}, avg_loss_loc: {}, mAP: {}".format(round(loss_cls, 3), round(loss_loc, 3), round(mAP, 4)))
         logger.warning("pos_logit: {}, neg_logit: {}".format(round(pos_l * 100, 2), round(neg_l * 100, 2)))
@@ -300,44 +334,100 @@ class Trainer(DefaultTrainer):
 
 
 
+def box_to_eval_form(box):
+    """
+    input box [x1, y1, x2, y2]
+    output box [x1, y1, width, height]
+    """
+    box = [round(x, 1) for x in box]
+    return [box[0], box[1], box[2]-box[0], box[3]-box[1]]
 
 
 
 
 
 
-
-
-# def load_my_rpn(model, filename):
-#     with open(filename, "rb") as f:
-#         data = torch.load(f)
+def parse_args():
+    _parser = argparse.ArgumentParser()
+    _parser.add_argument('--is_train', type=bool, default=True)
     
-#     model.load_state_dict(data)
-#     exit(-1)
-#     pretrained_state_dict = data["model"]
-#     model_state_dict = model.state_dict()
+    _parser.add_argument('--num_gpus', type=int, default=2)
+    _parser.add_argument('--gpu_ids', type=str, 
+                         help="Use comma between ids")
+    _parser.add_argument('--home', type=str, default="./output/test05")
+    _parser.add_argument('--num_workers', type=int, default=4)
 
-#     mats = {}
+    _parser.add_argument('--model_name', type=str, default="ResNet-50-FPN")
 
-#     for key in pretrained_state_dict.keys():
-#         mat = matcher(key)
-#         if mat is not None and mat in special_cases.keys():
-#             mats[key] = mat
-        
-#         else:
-#             pass
-
-#     dict_to_feed = {}
-
-#     for key in mats.keys():
-#         dict_to_feed[mats[key]] = torch.tensor(pretrained_state_dict[key])
+    _parser.add_argument('--optimizer', type=str, default="sgd-default")
+    _parser.add_argument('--lr_scheduler', type=str, default="multistep", 
+                          help="multistep, multistep-warmup, cosine")
+    _parser.add_argument('--image_per_batch', type=int, default=2)
+    _parser.add_argument('--batch_size', type=int, default=4)
     
-#     model_state_dict.update(dict_to_feed)
 
-#     model.load_state_dict(model_state_dict)
+    _parser.add_argument('--load', type=bool, default=True)
+    _parser.add_argument('--load_name', type=str, default="./output/test03/best.pkl")
+    
 
-#     return model, mats
+    _parser.add_argument('--min_size', type=str, default='640 672 704 736 768 800')
+    _parser.add_argument('--max_size', type=int, default=1333)
 
+    _parser.add_argument('--data_dir', type=str, 
+                         default="/media/thanos_hdd0/taeryunglee/detectron2/coco")
+
+    _parser.add_argument('--pixel_mean', type=str, default='103.53 116.28 123.675')
+    _parser.add_argument('--pixel_std', type=str, default='1.0 1.0 1.0')
+    _parser.add_argument('--fpn_out_chan', type=int, default=256)
+
+    _parser.add_argument('--load_pretrained_resnet', type=bool, default=True)
+    _parser.add_argument('--pretrained_resnet', type=str, default="pretrained/R-50.pkl")
+
+
+    # Hyperparameters
+    _parser.add_argument('--start_iter', type=int, default=0)
+    _parser.add_argument('--max_iter', type=int, default=360000)
+    _parser.add_argument('--lr_steps', type=tuple, default=(240000, 320000))
+    _parser.add_argument('--lr', type=float, default=0.005/4)
+    
+    _parser.add_argument('--rpn_pos_weight', type=float, default=13.7)
+    # not implemented yet
+    _parser.add_argument('--roi_pos_weight', type=float, default=1.)
+
+    _parser.add_argument('--rpn_nms_thresh', type=float, default=0.7)
+    _parser.add_argument('--rpn_nms_topk_train', type=int, default=2000)
+    _parser.add_argument('--rpn_nms_topk_test', type=int, default=1000)
+    _parser.add_argument('--rpn_nms_topk_post', type=int, default=1000)
+
+    _parser.add_argument('--rpn_batch_size', type=int, default=256)
+    _parser.add_argument('--roi_batch_size', type=int, default=512)
+    
+    _parser.add_argument('--roi_test_score_thresh', type=float, default=0.1)
+    _parser.add_argument('--roi_nms_thresh', type=float, default=0.5)
+    _parser.add_argument('--roi_nms_topk_post', type=int, default=100)
+    
+    args = _parser.parse_args()
+    return args
+
+
+def load_my_rpn(model, filename):
+    with open(filename, "rb") as f:
+        data = torch.load(f)
+
+    pretrained_state_dict = data
+    model_state_dict = model.state_dict()
+    
+    dict_to_feed = {rename_layer(k): v for k, v in pretrained_state_dict.items() if k in model_state_dict}
+    
+    model_state_dict.update(dict_to_feed)
+
+    model.load_state_dict(model_state_dict)
+
+    return model
+
+def rename_layer(name):
+    if name.startswith("module."):
+        return name[7:]
 
 # ====================== Not used ======================
 

@@ -131,7 +131,7 @@ def roi_apply_deltas(boxes, deltas):
     Return:
         transformed_boxes (Tensor): transformed boxes N * R * 4
     """
-    boxes = boxes.unsqueeze(0)
+    deltas = deltas.unsqueeze(0)
     deltas = deltas.float()  # ensure fp32 for decoding precision
     boxes = boxes.to(deltas.dtype)
 

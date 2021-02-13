@@ -4,9 +4,11 @@ import numpy as np
 import config
 import copy
 import cv2
+import json
 from pprint import pprint
 from torch.utils.data import Dataset, DataLoader
 from pycocotools.coco import COCO
+from pycocotools.cocoeval import COCOeval
 from PIL import Image
 from data.datautils import image as imutil
 from data.datautils import augmentations as aug
@@ -73,19 +75,26 @@ class MSCOCO(Dataset):
         assert os.path.isdir(os.path.join(data_dir, "annotations")), "no annotation dir"
         assert os.path.isdir(os.path.join(data_dir, "train2017")), "no train dir"
         assert os.path.isdir(os.path.join(data_dir, "val2017")), "no validation dir"
-        assert os.path.isfile(os.path.join(data_dir, "annotations", "person_keypoints_train2017.json")), "no train annotation file"
-        assert os.path.isfile(os.path.join(data_dir, "annotations", "person_keypoints_val2017.json")), "no validation annotation file"
+        assert os.path.isfile(os.path.join(data_dir, "annotations", "instances_train2017.json")), "no train annotation file"
+        assert os.path.isfile(os.path.join(data_dir, "annotations", "instances_val2017.json")), "no validation annotation file"
 
         self.train = train
 
         if train:
-            self._ann_path = os.path.join(data_dir, "annotations", "person_keypoints_train2017.json")
+            self._ann_path = os.path.join(data_dir, "annotations", "instances_train2017.json")
             self._data_path = os.path.join(data_dir, "train2017")
         else:
-            self._ann_path = os.path.join(data_dir, "annotations", "person_keypoints_val2017.json")
+            self._ann_path = os.path.join(data_dir, "annotations", "instances_val2017.json")
             self._data_path = os.path.join(data_dir, "val2017")
 
         self.dataset_dicts = self._build_dataset_dict(self._ann_path, self._data_path, target_class, add_ann)
+
+        # debug: 1/100 training data, 1/10 validation data
+        if train:
+            self.dataset_dicts = self.dataset_dicts[::100]
+        else:
+            self.dataset_dicts = self.dataset_dicts[::10]
+
         self.transforms = self._build_transforms(args, transforms)
 
     def __len__(self):
@@ -145,26 +154,83 @@ class MSCOCO(Dataset):
         
         return dataset_dict
 
-def test():
-    from main.train import parse_args
-    args = parse_args()
 
-    data = MSCOCO(args, "/media/thanos_hdd0/taeryunglee/detectron2/coco", train=False)
+class COCO_custom_evaluator():
+    def __init__(
+        self,
+        data_dir,
+        home_dir,
+        target_class=[1]    
+    ):
+        self.home_dir = home_dir
+        self._data_path = os.path.join(data_dir, "val2017")
+        self._ann_path = os.path.join(data_dir, "annotations", "instances_val2017.json")
 
-    res = data.__getitem__(1)
+        self._ann_type = 'bbox'
+        self.coco_gt = COCO(self._ann_path)
+        
+        self.img_ids = None
 
-    im = Image.fromarray(res["image"])
-    im.save("after.jpeg")
-
-    i = 0
-    vis = res["image"].copy()
-    vis[:, :, [0, 2]] = vis[:, :, [2, 0]]
-
-    for obj in res["annotations"]:
-        vis = visualizer(vis, obj, [], i)
-        i += 1
-    cv2.imwrite("visuailization.jpeg", vis)
+        # # to coco dict 참고해서 변환함수 추가
+        # self.coco_res = None
     
+    def evaluate(self, list_dict):
+        # dump
+        eval_file = os.path.join(self.home_dir, "eval_tmp.json")
+        with open(eval_file, "w") as f:
+            json.dump(list_dict, f)
+        
+        coco_dt = self.coco_gt.loadRes(eval_file)
 
-if __name__ == "__main__":
-    test()
+        if self.img_ids is None:
+            img_ids = [x["image_id"] for x in list_dict]
+            img_ids = sorted(list(set(img_ids)))
+            self.img_ids = img_ids
+
+        # cocoEval = COCOeval(cocoGt,cocoDt,annType)
+        # cocoEval.params.imgIds  = imgIds
+        # cocoEval.evaluate()
+        # cocoEval.accumulate()
+        # cocoEval.summarize()
+
+        coco_eval = COCOeval(self.coco_gt, coco_dt, self._ann_type)
+        coco_eval.params.catIds = [1]
+        coco_eval.params.imgIds = self.img_ids
+
+        coco_eval.evaluate()
+        coco_eval.accumulate()
+        coco_eval.summarize()
+
+        """
+        stat fields
+        Average Precision @ IoU=0.50:0.95 | area=   all |
+        Average Precision @ IoU=0.50      | area=   all |
+        Average Precision @ IoU=0.75      | area=   all |
+        Average Precision @ IoU=0.50:0.95 | area= small |
+        Average Precision @ IoU=0.50:0.95 | area=medium |
+        Average Precision @ IoU=0.50:0.95 | area= large |
+        Average Recall    @ IoU=0.50:0.95 | area=   all |
+        Average Recall    @ IoU=0.50:0.95 | area=   all |
+        Average Recall    @ IoU=0.50:0.95 | area=   all |
+        Average Recall    @ IoU=0.50:0.95 | area= small |
+        Average Recall    @ IoU=0.50:0.95 | area=medium |
+        Average Recall    @ IoU=0.50:0.95 | area= large |
+
+        대표 ap, ar: 0, 6
+        """
+        return coco_eval.stats, coco_eval.strings
+
+
+
+
+
+def convert_result_to_coco_format():
+    pass
+
+
+
+
+
+
+
+    

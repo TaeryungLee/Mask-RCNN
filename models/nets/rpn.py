@@ -8,8 +8,8 @@ from utils.logger import colorLogger as Logger
 class RPN(nn.Module):
     def __init__(
         self,
+        args,
         in_features=['p2', 'p3', 'p4', 'p5', 'p6'],
-        batch_size_per_image=256,
         positive_fraction=0.5,
         pre_nms_topk=(2000, 1000),
         post_nms_topk=(1000, 1000),
@@ -20,10 +20,11 @@ class RPN(nn.Module):
         smooth_l1_beta=0.0
     ):
         super().__init__()
+        self.args = args
         self.in_features = in_features
         self.rpn_head = RPNHeads()
 
-        self.batch_size_per_image = batch_size_per_image
+        self.batch_size_per_image = args.rpn_batch_size
         self.positive_fraction = positive_fraction
 
         self.pre_nms_topk = {"train": pre_nms_topk[0], "test": pre_nms_topk[1]}
@@ -88,7 +89,7 @@ class RPN(nn.Module):
         obj_loss = F.binary_cross_entropy_with_logits(
             torch.cat(pred_logits, dim=1)[valid_mask],
             gt_labels[valid_mask].to(torch.float32),
-            pos_weight=torch.full([valid_mask.sum().item()], 13.7, device=gt_labels.device),
+            pos_weight=torch.full([valid_mask.sum().item()], self.args.rpn_pos_weight, device=gt_labels.device),
             reduction='sum'
         )
         normalizer = self.batch_size_per_image * num_images
@@ -269,7 +270,7 @@ class RPN(nn.Module):
             pos_logit = None
             neg_logit = None
     
-        proposals = ut.predict_proposals(anchors, pred_logits, pred_reg_deltas, image_sizes, is_training)
+        proposals = ut.predict_proposals(self.args, anchors, pred_logits, pred_reg_deltas, image_sizes, is_training)
 
         return proposals, losses, pos_logit, neg_logit
 
