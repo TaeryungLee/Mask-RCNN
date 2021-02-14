@@ -90,10 +90,10 @@ class MSCOCO(Dataset):
         self.dataset_dicts = self._build_dataset_dict(self._ann_path, self._data_path, target_class, add_ann)
 
         # debug: 1/100 training data, 1/10 validation data
-        if train:
-            self.dataset_dicts = self.dataset_dicts[::100]
-        else:
-            self.dataset_dicts = self.dataset_dicts[::10]
+        # if train:
+        #     self.dataset_dicts = self.dataset_dicts[::100]
+        # else:
+        #     self.dataset_dicts = self.dataset_dicts[::10]
 
         self.transforms = self._build_transforms(args, transforms)
 
@@ -185,4 +185,6 @@ class COCO_custom_evaluator():
 
         대표 ap, ar: 0, 6
         """
+
+        os.remove(eval_file)
         return coco_eval.stats, coco_eval.strings

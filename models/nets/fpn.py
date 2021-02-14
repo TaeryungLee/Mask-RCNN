@@ -54,9 +54,11 @@ class FPN(nn.Module):
         
 
     def forward(self, x):
-        with torch.no_grad():
-            bottom_up_features = self.bottom_up(x)
+        # with torch.no_grad():
+        #     bottom_up_features = self.bottom_up(x)
 
+        bottom_up_features = self.bottom_up(x)
+        
         # P5
         C5 = bottom_up_features['res5']
         P5 = self.P5_conv1(C5)

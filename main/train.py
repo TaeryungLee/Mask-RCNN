@@ -133,7 +133,7 @@ class Trainer(DefaultTrainer):
                 output, loss_dict, extra = self.model(batched_imgs, image_sizes, annotations, image_ids, is_training=True)
                 losses = {k : v.sum() for k, v in loss_dict.items()}
 
-                loss = losses["loss_rpn_cls"] + losses["loss_rpn_loc"] * 10 + losses["loss_cls"] + losses["loss_box_reg"] * 5
+                loss = losses["loss_rpn_cls"] + losses["loss_rpn_loc"] + losses["loss_cls"] + losses["loss_box_reg"]
 
                 pos_score, neg_score = extra
                 
@@ -142,7 +142,7 @@ class Trainer(DefaultTrainer):
                 self.lr_scheduler.step()
 
 
-                if (i + _iter) % 100 == 0:
+                if (i + _iter) % 100 == 0 and (i + _iter) != 0:
                     total_time, avg_time = self.train_timer.toc()
                     ETA = (avg_time * self.args.max_iter) / 100
                     ETA = ETA - total_time
@@ -214,8 +214,6 @@ class Trainer(DefaultTrainer):
                     }
                     result_boxes.append(bbox)
         
-        eval_time, _ = self.eval_timer.toc()
-        logger.warning("iter: {}, eval time: {} s".format(iter_, round(eval_time, 2)))
 
         stats, strings = self.evaluator.evaluate(result_boxes)
         mAP, mAR = stats[0], stats[6]
@@ -223,6 +221,8 @@ class Trainer(DefaultTrainer):
         for string in strings:
             logger.warning(string)
 
+        eval_time, _ = self.eval_timer.toc()
+        logger.warning("iter: {}, eval time: {} s".format(iter_, round(eval_time, 2)))
         # If needed, visualize.
         return mAP
 
@@ -315,7 +315,7 @@ def parse_args():
     
     _parser.add_argument('--rpn_pos_weight', type=float, default=13.7)
     # not implemented yet
-    _parser.add_argument('--roi_pos_weight', type=float, default=1.)
+    _parser.add_argument('--roi_pos_weight', type=float, default=2.0)
 
     _parser.add_argument('--rpn_nms_thresh', type=float, default=0.7)
     _parser.add_argument('--rpn_nms_topk_train', type=int, default=2000)
@@ -323,9 +323,9 @@ def parse_args():
     _parser.add_argument('--rpn_nms_topk_post', type=int, default=1000)
 
     _parser.add_argument('--rpn_batch_size', type=int, default=256)
-    _parser.add_argument('--roi_batch_size', type=int, default=512)
+    _parser.add_argument('--roi_batch_size', type=int, default=256)
     
-    _parser.add_argument('--roi_test_score_thresh', type=float, default=0.1)
+    _parser.add_argument('--roi_test_score_thresh', type=float, default=0.3)
     _parser.add_argument('--roi_nms_thresh', type=float, default=0.5)
     _parser.add_argument('--roi_nms_topk_post', type=int, default=100)
     
