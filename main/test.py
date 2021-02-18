@@ -85,7 +85,7 @@ class Tester():
             100
         ]
 
-        results = {}
+        results = []
         for model_path in models:
 
             for grid in zip(
@@ -145,7 +145,7 @@ class Tester():
                 gt = {"annotations": gt_boxes, "images": img_ids, "categories": [{"supercategory": "person", "id": 1, "name": "person"}]}
                 stats, strings = self.evaluator.evaluate(gt, result_boxes)
                 mAP, mAR = stats[0], stats[8]
-                results[grid] = (mAP, mAR)
+                results.append(grid, strings, stats, mAP, mAR)
 
                 self.logger.info("")
                 self.logger.info("All settings tested:")
@@ -155,11 +155,32 @@ class Tester():
                 for string in strings:
                     self.logger.info(string)
                 self.logger.info("mAP: {}, mAR: {}".format(mAP, mAR))
-
         
-        for grid in results.keys():
-            pass
+        self.logger.info("")
+        self.logger.info("==========================================================================================")
+        self.logger.info("")
 
+        # by mAP
+        results.sort(reverse=True, key=lambda x : x[3])
+        self.logger.info("top 5 results by mAP")
+        for i, result in enumerate(results[:10]):
+            self.logger.info("Used settings:")
+            for param, name in zip(result[0], tested_params):
+                self.logger.info("{}: {}".format(name, param))
+            for string in result[1]:
+                self.logger.info(string)
+            self.logger.info("mAP: {}, mAR: {}".format(result[3], result[4]))
+
+        # by mAR
+        self.logger.info("top 5 results by mAR")
+        results.sort(reverse=True, key=lambda x : x[4])
+        for i, result in enumerate(results[:10]):
+            self.logger.info("Used settings:")
+            for param, name in zip(result[0], tested_params):
+                self.logger.info("{}: {}".format(name, param))
+            for string in result[1]:
+                self.logger.info(string)
+            self.logger.info("mAP: {}, mAR: {}".format(result[3], result[4]))
 
 
 def parse_args():
