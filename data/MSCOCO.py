@@ -28,7 +28,7 @@ class MSCOCO(Dataset):
 
         imgs_anns = list(zip(imgs, anns))
 
-        out_ann = ["bbox"] + add_ann
+        out_ann = ["bbox", "category_id"] + add_ann
         out_ann = list(set(out_ann))
 
         for (img_dict, ann_dict_list) in imgs_anns:
@@ -40,11 +40,12 @@ class MSCOCO(Dataset):
 
             objs = []
             for ann in ann_dict_list:
-                assert ann["image_id"] == image_id
-                obj = {key: ann[key] for key in out_ann if key in ann}
-                # assert ann["category_id"] in target_class
+                if ann["category_id"] in target_class:
+                    assert ann["image_id"] == image_id
+                    obj = {key: ann[key] for key in out_ann if key in ann}
+                    assert ann["category_id"] in target_class
 
-                objs.append(obj)
+                    objs.append(obj)
             
             record["annotations"] = objs
 
@@ -139,20 +140,21 @@ class COCO_custom_evaluator():
         target_class=[1]    
     ):
         self.home_dir = home_dir
-        self._data_path = os.path.join(data_dir, "val2017")
-        self._ann_path = os.path.join(data_dir, "annotations", "instances_val2017.json")
-
         self._ann_type = 'bbox'
-        self.coco_gt = COCO(self._ann_path)
-        
         self.img_ids = None
     
-    def evaluate(self, list_dict):
-        # dump
+    def evaluate(self, gt, list_dict):
+        # dump gt
+        gt_file = os.path.join(self.home_dir, "gt_tmp.json")
+        with open(gt_file, "w") as f:
+            json.dump(gt, f)
+
+        # dump prediction
         eval_file = os.path.join(self.home_dir, "eval_tmp.json")
         with open(eval_file, "w") as f:
             json.dump(list_dict, f)
         
+        self.coco_gt = COCO(gt_file)
         coco_dt = self.coco_gt.loadRes(eval_file)
 
         if self.img_ids is None:
@@ -187,4 +189,5 @@ class COCO_custom_evaluator():
         """
 
         os.remove(eval_file)
+        os.remove(gt_file)
         return coco_eval.stats, coco_eval.strings

@@ -80,9 +80,18 @@ class MaskRCNN(nn.Module):
         anno1 = [x for x in annotations[0] if not (x[0] < 1 and x[1] < 1 and x[2] < 1 and x[3] < 1)]
         anno2 = [x for x in annotations[1] if not (x[0] < 1 and x[1] < 1 and x[2] < 1 and x[3] < 1)]
         annotations = [torch.stack(anno1), torch.stack(anno2)]
+        if self.args.freeze_backbone:
+            with torch.no_grad():
+                backbone_features = self.backbone(batched_imgs)
+        else:
+            backbone_features = self.backbone(batched_imgs)
+
+        if self.args.freeze_rpn:
+            with torch.no_grad():
+                roi_proposals, rpn_losses, _, _ = self.proposal_generator(backbone_features, image_sizes, annotations, is_training)
+        else:
+            roi_proposals, rpn_losses, _, _ = self.proposal_generator(backbone_features, image_sizes, annotations, is_training)
         
-        backbone_features = self.backbone(batched_imgs)
-        roi_proposals, rpn_losses, _, _ = self.proposal_generator(backbone_features, image_sizes, annotations, is_training)
         head_losses, inference, extra = self.roi_heads(batched_imgs, image_sizes, backbone_features, roi_proposals, annotations, is_training=is_training)
 
         losses = {}

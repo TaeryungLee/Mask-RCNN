@@ -156,7 +156,7 @@ class ROIHeads(nn.Module):
         return {"loss_cls": loss_cls, "loss_box_reg": loss_box_reg}, avg_pos_scores, avg_neg_scores
 
     
-    def inference(self, image_sizes, cls_scores, bbox_preds, proposal_boxes):
+    def inference(self, image_sizes, cls_scores, bbox_preds, proposal_boxes, num_):
         """
         inferrence on human objects
         Args:
@@ -185,7 +185,7 @@ class ROIHeads(nn.Module):
         ret_inds = []
         num_inferences = []
 
-        for image_size, cls_score, bbox_pred, proposal_box in zip(image_sizes, cls_scores, bbox_preds, proposal_boxes):
+        for image_size, cls_score, bbox_pred, proposal_box, num in zip(image_sizes, cls_scores, bbox_preds, proposal_boxes, num_):
             # predict_boxes using bbox_pred
             boxes = roi_ut.roi_apply_deltas(proposal_box, bbox_pred)
 
@@ -209,7 +209,7 @@ class ROIHeads(nn.Module):
             scores = scores[filter_mask]
 
             keep = prop_ut.apply_nms(boxes, scores, filter_inds[:, 1], test_nms_thresh)
-            keep = keep[:test_topk_per_image]
+            keep = keep[:test_topk_per_image][:2*num]
             boxes, scores, filter_inds = boxes[keep], scores[keep], filter_inds[keep]
 
             ret_boxes.append(boxes)
@@ -274,7 +274,7 @@ class ROIHeads(nn.Module):
             inference = ()
             extra = (pos_score, neg_score)
         else:
-            inference = self.inference(image_sizes, cls_score, bbox_pred, sampled_proposals)
+            inference = self.inference(image_sizes, cls_score, bbox_pred, sampled_proposals, (boxes.shape[0] for boxes in gt_boxes))
             losses = {}
             extra = ()
         
