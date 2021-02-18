@@ -162,7 +162,7 @@ class Tester():
 
         # by mAP
         results.sort(reverse=True, key=lambda x : x[3])
-        self.logger.info("top 5 results by mAP")
+        self.logger.info("top 10 results by mAP")
         for i, result in enumerate(results[:10]):
             self.logger.info("Used settings:")
             for param, name in zip(result[0], tested_params):
@@ -172,7 +172,7 @@ class Tester():
             self.logger.info("mAP: {}, mAR: {}".format(result[3], result[4]))
 
         # by mAR
-        self.logger.info("top 5 results by mAR")
+        self.logger.info("top 10 results by mAR")
         results.sort(reverse=True, key=lambda x : x[4])
         for i, result in enumerate(results[:10]):
             self.logger.info("Used settings:")
