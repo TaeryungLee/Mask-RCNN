@@ -62,7 +62,7 @@ class Tester():
         ]
 
         rpn_nms_topk_trains = [
-            1000, 2000
+            2000
         ]
 
         rpn_nms_topk_tests = [
