@@ -28,6 +28,10 @@ def build_backbone(args):
     if args.is_train:
         if args.load_pretrained_resnet:
             bottom_up, match_dict = load_pretrained_resnet(bottom_up, args.pretrained_resnet)
+        else:
+            match_dict = None
+    else:
+        match_dict = None
 
     in_features = bottom_up.out_features
     out_channels = args.fpn_out_chan

@@ -112,7 +112,7 @@ class MSCOCO(Dataset):
 
         img_shape = imutil.get_image_size(img) # H * W
         dataset_dict["image"] = torch.as_tensor(np.ascontiguousarray(img.transpose(2,0,1)))
-
+    
         # Build AugInput
         aug_input = aug.AugInput(img, dataset_dict["annotations"])
         
@@ -185,7 +185,7 @@ class COCO_custom_evaluator():
         Average Recall    @ IoU=0.50:0.95 | area=medium |
         Average Recall    @ IoU=0.50:0.95 | area= large |
 
-        대표 ap, ar: 0, 6
+        대표 ap, ar: 0, 8
         """
 
         os.remove(eval_file)

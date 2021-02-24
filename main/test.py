@@ -5,13 +5,14 @@ import torch
 import argparse
 import pickle
 from torch import nn
+from itertools import product
 
 from data.loader import build_dataloader
 from data.MSCOCO import COCO_custom_evaluator
 from models.mask_rcnn import MaskRCNN
 from utils.visualizer import vis_denorm_tensor_with_bbox, vis_gt_and_prop
 from utils.dir import mkdir
-from utils.logger import ColorLogger as Logger
+from utils.logger import colorLogger as Logger
 from utils.timer import sec2minhrs
 
 from main.train import load_my_rpn, box_to_eval_form, box_to_gt_form
@@ -36,8 +37,6 @@ class Tester():
     
 
     def _create_model(self, args, model_name):
-        self.logger.info("creating model...")
-
         pixel_mean = args.pixel_mean.split()
         pixel_mean = [float(x) for x in pixel_mean]
         pixel_std = args.pixel_std.split()
@@ -48,17 +47,18 @@ class Tester():
         return model
     
 
-    def _create_val_dataloader(self, args):
+    def _create_test_dataloader(self, args):
         return build_dataloader(args, train=False)
 
 
     def test(self):
         models = [
             "./output/test09/best.pkl",
+            "./output/test10/best.pkl",
         ]
         
         rpn_nms_threshs = [
-            0.6, 0.7, 0.8
+            0.6, 0.7
         ]
 
         rpn_nms_topk_trains = [
@@ -74,29 +74,39 @@ class Tester():
         ]
 
         roi_test_score_threshs = [
-            0.4, 0.5, 0.6
+            0.5, 0.6, 0.7
         ]
 
         roi_nms_threshs = [
-            0.4, 0.5, 0.6
+            0.4, 0.5
         ]
 
         roi_nms_topk_posts = [
-            100
+            10, 25, 50
+        ]
+
+        # test inferences
+        # rpn_nms_threshs = [0.7]
+        # rpn_nms_topk_posts = [1000]
+        # rpn_nms_topk_tests = [1000]
+        # roi_test_score_threshs = [0.5]
+        # roi_nms_threshs = [0.4]
+        # roi_nms_topk_posts = [10, 25, 100]
+
+        items = [
+            rpn_nms_threshs,
+            rpn_nms_topk_trains,
+            rpn_nms_topk_tests,
+            rpn_nms_topk_posts,
+            roi_test_score_threshs,
+            roi_nms_threshs,
+            roi_nms_topk_posts
         ]
 
         results = []
         for model_path in models:
 
-            for grid in zip(
-                rpn_nms_threshs,
-                rpn_nms_topk_trains,
-                rpn_nms_topk_tests,
-                rpn_nms_topk_posts,
-                roi_test_score_threshs,
-                roi_nms_threshs,
-                roi_nms_topk_posts
-            ):
+            for grid in product(*items):
                 self.args.rpn_nms_threshs = grid[0]
                 self.args.rpn_nms_topk_trains = grid[1]
                 self.args.rpn_nms_topk_tests = grid[2]
@@ -106,7 +116,7 @@ class Tester():
                 self.args.roi_nms_topk_posts = grid[6]
 
                 # create grid model                
-                self.model = self._create_model(args, model_name=args.model_name)
+                self.model = self._create_model(self.args, model_name=self.args.model_name)
                 load_my_rpn(self.model, model_path)
                 self.model = nn.DataParallel(self.model)
                 self.model.cuda()
@@ -115,7 +125,10 @@ class Tester():
                 result_boxes = []
                 gt_boxes = []
                 img_ids = []
+                _id = 0
                 for i, data in enumerate(self.test_loader):
+                    if i % 20 == 0 and i != 0:
+                        print(i, " / 670")
                     batched_imgs, image_sizes, annotations, image_ids = self.model.module.preprocess(self.args, data)
                 
                     with torch.no_grad():
@@ -145,9 +158,9 @@ class Tester():
                 gt = {"annotations": gt_boxes, "images": img_ids, "categories": [{"supercategory": "person", "id": 1, "name": "person"}]}
                 stats, strings = self.evaluator.evaluate(gt, result_boxes)
                 mAP, mAR = stats[0], stats[8]
-                results.append(grid, strings, stats, mAP, mAR)
+                results.append((grid, strings, stats, mAP, mAR, model_path))
 
-                self.logger.info("")
+                self.logger.info("Model: {}".format(model_path))
                 self.logger.info("All settings tested:")
                 for k in tested_params:
                     self.logger.debug("{}: {}".format(k, vars(self.args)[k]))
@@ -155,6 +168,7 @@ class Tester():
                 for string in strings:
                     self.logger.info(string)
                 self.logger.info("mAP: {}, mAR: {}".format(mAP, mAR))
+                self.logger.info("")
         
         self.logger.info("")
         self.logger.info("==========================================================================================")
@@ -164,23 +178,27 @@ class Tester():
         results.sort(reverse=True, key=lambda x : x[3])
         self.logger.info("top 10 results by mAP")
         for i, result in enumerate(results[:10]):
+            self.logger.info("Model: {}".format(result[5]))
             self.logger.info("Used settings:")
             for param, name in zip(result[0], tested_params):
                 self.logger.info("{}: {}".format(name, param))
             for string in result[1]:
                 self.logger.info(string)
             self.logger.info("mAP: {}, mAR: {}".format(result[3], result[4]))
-
+            self.logger.info("")
         # by mAR
         self.logger.info("top 10 results by mAR")
         results.sort(reverse=True, key=lambda x : x[4])
         for i, result in enumerate(results[:10]):
+            self.logger.info("Model: {}".format(result[5]))
             self.logger.info("Used settings:")
             for param, name in zip(result[0], tested_params):
                 self.logger.info("{}: {}".format(name, param))
             for string in result[1]:
                 self.logger.info(string)
             self.logger.info("mAP: {}, mAR: {}".format(result[3], result[4]))
+            self.logger.info("")
+
 
 
 def parse_args():
@@ -190,7 +208,7 @@ def parse_args():
     _parser.add_argument('--num_gpus', type=int, default=2)
     _parser.add_argument('--gpu_ids', type=str, 
                          help="Use comma between ids")
-    _parser.add_argument('--home', type=str, default="./output/test_final")
+    _parser.add_argument('--home', type=str, default="./output/grid_test01")
     _parser.add_argument('--num_workers', type=int, default=4)
 
     _parser.add_argument('--model_name', type=str, default="ResNet-50-FPN")
@@ -214,6 +232,9 @@ def parse_args():
     _parser.add_argument('--rpn_batch_size', type=int, default=256)
     _parser.add_argument('--roi_batch_size', type=int, default=256)
 
+    _parser.add_argument('--freeze_backbone', type=bool, default=False)
+    _parser.add_argument('--freeze_rpn', type=bool, default=False)
+
     # Hyperparameters to test
     _parser.add_argument('--rpn_nms_thresh', type=float, default=0.7)
     _parser.add_argument('--rpn_nms_topk_train', type=int, default=2000)
@@ -235,7 +256,7 @@ def main():
     args = parse_args()
     
     tester = Tester(args)
-    Tester.test()
+    tester.test()
 
 if __name__ == "__main__":
     main()

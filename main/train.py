@@ -381,7 +381,7 @@ def parse_args():
     _parser.add_argument('--num_gpus', type=int, default=2)
     _parser.add_argument('--gpu_ids', type=str, 
                          help="Use comma between ids")
-    _parser.add_argument('--home', type=str, default="./output/test09")
+    _parser.add_argument('--home', type=str, default="./output/test10")
     _parser.add_argument('--num_workers', type=int, default=4)
 
     _parser.add_argument('--model_name', type=str, default="ResNet-50-FPN")
@@ -419,8 +419,8 @@ def parse_args():
     _parser.add_argument('--lr_steps', type=tuple, default=(240000, 320000))
     _parser.add_argument('--lr', type=float, default=0.005/4)
     
-    _parser.add_argument('--rpn_pos_weight', type=float, default=1.0)
-    _parser.add_argument('--roi_pos_weight', type=float, default=1.0)
+    _parser.add_argument('--rpn_pos_weight', type=float, default=13.7)
+    _parser.add_argument('--roi_pos_weight', type=float, default=2.0)
 
     _parser.add_argument('--rpn_nms_thresh', type=float, default=0.7)
     _parser.add_argument('--rpn_nms_topk_train', type=int, default=2000)
