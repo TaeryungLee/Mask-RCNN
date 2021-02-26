@@ -381,7 +381,7 @@ def parse_args():
     _parser.add_argument('--num_gpus', type=int, default=2)
     _parser.add_argument('--gpu_ids', type=str, 
                          help="Use comma between ids")
-    _parser.add_argument('--home', type=str, default="./output/test10")
+    _parser.add_argument('--home', type=str, default="./output/test11")
     _parser.add_argument('--num_workers', type=int, default=4)
 
     _parser.add_argument('--model_name', type=str, default="ResNet-50-FPN")

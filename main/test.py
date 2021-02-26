@@ -53,8 +53,7 @@ class Tester():
 
     def test(self):
         models = [
-            "./output/test09/best.pkl",
-            "./output/test10/best.pkl",
+            "./output/test11/best.pkl"
         ]
         
         rpn_nms_threshs = [
@@ -82,7 +81,7 @@ class Tester():
         ]
 
         roi_nms_topk_posts = [
-            10, 25, 50
+            10, 25
         ]
 
         # test inferences
@@ -208,7 +207,7 @@ def parse_args():
     _parser.add_argument('--num_gpus', type=int, default=2)
     _parser.add_argument('--gpu_ids', type=str, 
                          help="Use comma between ids")
-    _parser.add_argument('--home', type=str, default="./output/grid_test01")
+    _parser.add_argument('--home', type=str, default="./output/grid_test02")
     _parser.add_argument('--num_workers', type=int, default=4)
 
     _parser.add_argument('--model_name', type=str, default="ResNet-50-FPN")

@@ -4,7 +4,7 @@ Practice implementation on Mask R-CNN.
 ### Current best (After grid search)  
 Used settings:  
 rpn_pos_weight: 13.7  
-roi_pos_weight: 2.0
+roi_pos_weight: 2.0  
 rpn_nms_threshs: 0.6  
 rpn_nms_topk_trains: 2000  
 rpn_nms_topk_tests: 500  

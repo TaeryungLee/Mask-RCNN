@@ -26,7 +26,7 @@ class ROIHeads(nn.Module):
         self.pooler_scales = pooler_scales
 
         # build pooler
-        self.pooler = RoIPooler(output_size=pooler_resolution, scales=pooler_scales, method="RoIPool")  # RoIPool or RoIAlign
+        self.pooler = RoIPooler(output_size=pooler_resolution, scales=pooler_scales, method="RoIAlign")  # RoIPool or RoIAlign
 
         # first fc 1024
         self.flat = nn.Flatten()
